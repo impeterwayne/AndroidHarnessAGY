@@ -1,13 +1,13 @@
 ---
 name: orbit-mvi-feature-builder
-description: Build Orbit MVI feature flows for AI Mental Math using the canonical pokedex feature and repo architecture rules. Use when the user asks to implement a new screen, feature flow, route, contract, ViewModel, stateless Compose screen, or graph in this codebase.
+description: Build Orbit MVI feature flows for Genesys Compose using the canonical pokedex feature and repo architecture rules. Use when the user asks to implement a new screen, feature flow, route, contract, ViewModel, stateless Compose screen, or graph in this codebase.
 ---
 
-# AI Mental Math Orbit MVI Feature Workflow
+# Genesys Compose Orbit MVI Feature Workflow
 
 ## Overview
 
-Implement or extend Android UI feature flows in the AI Mental Math codebase using the repository's canonical Orbit MVI pattern.
+Implement or extend Android UI feature flows in the Genesys Compose codebase using the repository's canonical Orbit MVI pattern.
 
 Use this skill when work involves any of the following:
 - creating a new feature screen or flow

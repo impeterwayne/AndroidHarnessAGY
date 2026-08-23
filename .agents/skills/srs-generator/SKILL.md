@@ -1,115 +1,129 @@
 ---
 name: srs-generator
-description: "Use this skill to create SRS documents. The document ONLY describes functionality, screen components, user interactions, and system responses. ABSOLUTELY NO technical information, code structure, or implementation details."
+description: "Autonomous Software Requirements Specification (SRS) generator. Automatically analyzes feature requirements, user intent, or design context, and creates comprehensive, non-technical functional specification documents (screen components, user interactions, system responses, state lifecycles) without manual Q&A bottlenecks."
 ---
 
-# Create SRS Document
+# Autonomous SRS Generator
 
-Transform ideas into functional specification documents through Q&A.
-
-Understand project context, ask questions one at a time to clarify interface and interactions. When clear enough, present SRS and get user approval.
+Automatically transform feature goals, prompts, or design contexts into comprehensive, production-grade Software Requirements Specification (SRS) documents without manual Q&A bottlenecks.
 
 <HARD-GATE>
-DO NOT mention technical implementation, system architecture, or code. Only describe functionality, interface, user actions, and system actions.
+DO NOT mention technical implementation, code, class names, database tables, API payloads, or software architecture. Only describe functional requirements: UI components, user interactions, system responses, and state lifecycles.
 </HARD-GATE>
 
-## Checklist
+---
 
-You MUST create a task list and complete them in order:
+## Workflow Checklist
 
-1. **Explore project context** — check files, documents, recent commits.
-2. **Ask clarifying questions** — ask ONE QUESTION AT A TIME, focusing on:
-   - What components are on the screen?
-   - What can users do?
-   - How does the system respond?
-3. **Propose 2-3 functional flows/layouts** — present options with pros and cons.
-4. **Present each section of SRS** — request user approval after each section.
-5. **Write SRS document** — save to `docs/<feature name>/01-srs.md`.
-6. **Self-review document** — check for placeholders, contradictions, technical/code elements.
-7. **User reviews document** — request user to review the SRS file before completion.
+Execute the following steps autonomously:
+
+1. **Autonomous Context Exploration**:
+   - Inspect feature descriptions, user goals, existing features, or Figma design references in the workspace.
+   - Infer the target user persona, core workflow, and business objectives automatically.
+
+2. **Functional Requirements Synthesis**:
+   - Automatically deduce the complete screen hierarchy and UI components (App Bar, Inputs, Buttons, Lists, Panels, Chips, Modals).
+   - Auto-derive all interaction matrices: `User Action` → `System Response`.
+   - Specify all UI states: **Initial / Idle**, **Loading**, **Populated / Success**, **Empty**, and **Error / Retry**.
+   - Infer standard validation rules (empty inputs, formats, boundaries, confirmation dialogs).
+
+3. **Generate Standard SRS Document**:
+   - Structure and write the SRS document to `docs/<feature name>/srs.md`.
+
+4. **Automated Self-Audit**:
+   - Check for and eliminate any placeholders (`TODO`, `TBD`).
+   - Check for any technical/code leaks (Kotlin, SQL, JSON, endpoints) and strip them.
+   - Verify every user action has a clear, deterministic system response.
+
+5. **Deliver Final Artifact**:
+   - Present the finalized SRS file to the user for instant review.
+
+---
 
 ## Process Diagram
 
 ```dot
 digraph srs_generator {
-    "Explore project context" [shape=box];
-    "Ask clarifying questions" [shape=box];
-    "Propose interaction flows" [shape=box];
-    "Present SRS sections" [shape=box];
-    "User approves SRS?" [shape=diamond];
-    "Write SRS document" [shape=box];
-    "Self-review document\n(fix directly)" [shape=box];
-    "User reviews file?" [shape=diamond];
-    "Complete" [shape=doublecircle];
+    "Ingest Feature Goal & Context" [shape=box];
+    "Synthesize Functional Specs (Auto-infer UI, Flows, States)" [shape=box];
+    "Generate docs/<feature>/srs.md" [shape=box];
+    "Self-Audit (No Code, No Placeholders, Complete Coverage)" [shape=box];
+    "Deliver SRS Document" [shape=doublecircle];
 
-    "Explore project context" -> "Ask clarifying questions";
-    "Ask clarifying questions" -> "Propose interaction flows";
-    "Propose interaction flows" -> "Present SRS sections";
-    "Present SRS sections" -> "User approves SRS?";
-    "User approves SRS?" -> "Present SRS sections" [label="no, needs changes"];
-    "User approves SRS?" -> "Write SRS document" [label="yes"];
-    "Write SRS document" -> "Self-review document\n(fix directly)";
-    "Self-review document\n(fix directly)" -> "User reviews file?";
-    "User reviews file?" -> "Write SRS document" [label="needs changes"];
-    "User reviews file?" -> "Complete" [label="approved"];
+    "Ingest Feature Goal & Context" -> "Synthesize Functional Specs (Auto-infer UI, Flows, States)";
+    "Synthesize Functional Specs (Auto-infer UI, Flows, States)" -> "Generate docs/<feature>/srs.md";
+    "Generate docs/<feature>/srs.md" -> "Self-Audit (No Code, No Placeholders, Complete Coverage)";
+    "Self-Audit (No Code, No Placeholders, Complete Coverage)" -> "Deliver SRS Document";
 }
 ```
 
-## Implementation Process
+---
 
-**Understand functional requirements:**
+## Autonomous Generation Guidelines
 
-- Assess current project state before starting.
-- Ask clarifying questions one aspect at a time.
-- Identify **ALL** components on the screen and confirm with User before describing SRS.
-- **ESPECIALLY DO NOT INFER** any component, behavior, or response if User hasn't confirmed.
-- Prioritize multiple-choice questions.
-- **Only ask one question at a time** - don't bundle multiple ideas into one question.
-- Focus on listing completely:
-  - **UI Components:** Text, Button, Image, List, Form...
-  - **User interactions:** Click, Swipe, Scroll, Input text...
-  - **System responses:** Show loading, display Toast, validation errors, navigate to screen...
-- ABSOLUTELY DO NOT discuss database, API, folder structure, or technologies used.
+### 1. Proactive Inference vs. User Asking
+- **Do not stall or ask repetitive step-by-step questions** for standard mobile behaviors (e.g., standard back buttons, pull-to-refresh, loading indicators, empty states, confirmation alerts).
+- **Auto-infer standard mobile best practices** directly into the functional spec.
+- Only prompt the user if there is a fundamental functional conflict or mutually exclusive business goal that cannot be reasonably inferred.
 
-**Explore functional approaches:**
+### 2. Required SRS Document Structure (`docs/<feature-name>/srs.md`)
 
-- Propose 2-3 ways to layout interface or user flows.
-- Present conversationally, provide suggestions and reasoning.
+When generating `srs.md`, format the content using the following standardized functional structure:
 
-**Present SRS:**
+```markdown
+# Functional Specification: [Feature Name]
 
-- When functionality is clear, present each SRS section.
-- Ask user if that section matches their intent before moving to the next.
-- Content includes: list of screens, components on each screen, interaction scenarios `User actions -> System actions`.
+## 1. Overview & Objective
+- **Purpose**: High-level functional goal of the feature.
+- **Target User**: Who uses this feature and what problem it solves.
+- **Scope**: What is covered in this feature flow.
 
-## After Functional Design
+## 2. Screen Hierarchy & Navigation Flow
+- **Entry Points**: How the user navigates into this feature.
+- **Screen List**: List of all screens and dialogs in this feature.
+- **Screen Flow Diagram**: Step-by-step navigation map between screens.
 
-**Documentation:**
+## 3. Detailed Screen Specifications
 
-- Write approved SRS to `docs/<feature name>/01-srs.md`.
+### Screen: [Screen Name]
+#### 3.1 UI Components & Layout
+- Header / Top Bar (Title, Navigation icons, Action buttons)
+- Content Area (Form fields, Cards, Lists, Dynamic items)
+- Primary Actions (Action buttons, Floating buttons, Bottom bar)
 
-**Self-check document:**
+#### 3.2 State Lifecycles
+- **Initial / Idle State**: Default appearance when screen first opens.
+- **Loading State**: Visual feedback during data fetching or asynchronous tasks (shimmer/spinner).
+- **Populated / Success State**: Layout when items or content are present.
+- **Empty State**: Visual guidance and action when no data/items exist.
+- **Error State**: User feedback when an operation fails, with retry options.
 
-After writing document, check:
+#### 3.3 User Interactions & System Responses
+| Component | User Action | System Response |
+|---|---|---|
+| Search Input | Types keyword | Filters list in real-time after typing ceases |
+| Submit Button | Taps button | Validates fields -> Shows loading indicator -> Navigates to confirmation screen |
+| Back Button | Taps back | Discards unsaved changes or returns to previous screen |
 
-1. **Placeholders:** No "TBD", "TODO", missing sections.
-2. **Consistency:** User actions lead to logical system actions.
-3. **Technical elements:** No code, database, architecture.
-4. **Clarity:** No ambiguous functionality.
+#### 3.4 Form Validation & Business Rules
+- Mandatory vs. optional fields.
+- Input constraints (character limits, format requirements).
+- Inline error messages and boundary conditions.
 
-Fix directly in file then proceed.
+## 4. Edge Cases & Offline / Error Handling
+- Network disconnection behavior (show offline banner, disable actions).
+- Timeout or server error feedback (toast/dialog with retry).
+- Cancellation / Back navigation handling during in-flight actions.
 
-**User Review Gate:**
-After writing, request user to review the file:
+## 5. Acceptance Criteria
+- Explicit checklist of functional capabilities to verify completion.
+```
 
-> "I've written the SRS document at `<path>`. Please review and let me know if any changes are needed before we move to the next steps."
+---
 
-Wait for feedback. If changes needed, fix and return to review loop. When user agrees, complete the skill.
+## Strict Hard Gates
 
-## Core Principles
-
-- **One question at a time** - Don't overwhelm user with multiple questions.
-- **Prioritize multiple-choice** - Easier to answer than open-ended questions.
-- **No technical details** - Absolutely no discussion of code, architecture, DB.
-- **Confirm each step** - Present each section and get agreement before continuing.
-- **Focus only on functionality** - Display components, User interactions, System responses.
+- **Zero Code**: No Kotlin, Swift, Jetpack Compose, XML, JSON, SQL, or pseudocode.
+- **Zero Architecture Details**: No mention of ViewModels, Repositories, UseCases, DB tables, HTTP status codes, or API endpoints.
+- **Pure Functional Focus**: Everything must be described from the user's perspective (`User sees`, `User performs`, `System responds with`).
+- **No Placeholders**: Never leave `TODO`, `TBD`, or placeholder bullets.

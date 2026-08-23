@@ -1,0 +1,8 @@
+# Test codebases
+CodeBaseCompose/
+
+# IDE / OS files
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
