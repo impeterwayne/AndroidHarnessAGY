@@ -45,7 +45,7 @@ landscapist-animation = { module = "com.github.skydoves:landscapist-animation", 
 
 ## 2. Standard Usage Pattern
 
-Below is the canonical implementation pattern for `GlideImage`, as demonstrated in `:feature:pokedex` (e.g., [PokemonCard.kt](file:///d:/Quest/AndroidHarnessAGY/CodeBaseCompose/feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/components/PokemonCard.kt) and [PokemonDetailContent.kt](file:///d:/Quest/AndroidHarnessAGY/CodeBaseCompose/feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/detail/components/PokemonDetailContent.kt)).
+Below is the canonical implementation pattern for `GlideImage` in Jetpack Compose:
 
 ```kotlin
 import androidx.compose.foundation.Image
@@ -54,6 +54,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,11 +64,10 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.genesys.core.designsystem.theme.AppTheme
-import com.genesys.feature.pokedex.presentation.common.components.CustomCircularProgressIndicator
 import com.skydoves.landscapist.glide.GlideImage
 
 @Composable
-fun PokemonImage(
+fun AppNetworkImage(
     imageUrl: String,
     modifier: Modifier = Modifier,
     contentDescription: String? = null
@@ -88,7 +88,7 @@ fun PokemonImage(
                     .background(Color(0x0FFFFFFF)),
                 contentAlignment = Alignment.Center
             ) {
-                CustomCircularProgressIndicator(
+                CircularProgressIndicator(
                     strokeWidth = 2.dp,
                     modifier = Modifier.size(24.dp),
                     color = AppTheme.colorScheme.colorPrimary

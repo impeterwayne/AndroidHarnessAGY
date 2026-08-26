@@ -12,7 +12,7 @@ Android app built with **Jetpack Compose**, following **Clean Architecture + MVI
 
 ```
 :app
- ├── :feature:*          (each feature is a separate module, e.g. :feature:pokedex)
+ ├── :feature:*          (each feature is a separate module, e.g. :feature:home)
  ├── :core:designsystem
  ├── :core:data
  ├── :core:domain
