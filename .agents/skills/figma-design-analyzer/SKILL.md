@@ -1,11 +1,11 @@
 ---
 name: figma-design-analyzer
-description: "Deeply analyzes Figma designs via Figma MCP tools (figma-mcp-android): node hierarchy, Auto-Layout, Spacing, Typography, Color/Design Tokens, Prototype Reactions, and Dev Annotations. MUST ALWAYS activate whenever a figma.com URL (https://www.figma.com/...), Figma node-id, or Figma design link is provided in the prompt."
+description: "Deeply analyzes Figma designs via Figma MCP tools (figma_mcp_android): node hierarchy, Auto-Layout, Spacing, Typography, Color/Design Tokens, Prototype Reactions, and Dev Annotations. MUST ALWAYS activate whenever a figma.com URL (https://www.figma.com/...), Figma node-id, or Figma design link is provided in the prompt."
 ---
 
 # Figma Design Analyzer
 
-This skill connects to Figma via the `figma-mcp-android` MCP server to comprehensively inspect screens or components in Figma, extracting layout hierarchy, design parameters, prototype reactions, and generating a structured design specification document (`figma-spec.md`).
+This skill connects to Figma via the `figma_mcp_android` MCP server to comprehensively inspect screens or components in Figma, extracting layout hierarchy, design parameters, prototype reactions, and generating a structured design specification document (`figma-spec.md`).
 
 ---
 
@@ -51,8 +51,8 @@ digraph figma_analyzer {
 ```
 
 ### Step 1: Identify Target Node
-1. If the user already selected nodes in Figma: Call `call_mcp_tool('figma-mcp-android', 'get_selection', {})`.
-2. If the user provides a screen name or URL: Call `call_mcp_tool('figma-mcp-android', 'search_nodes', { query: '<ScreenName>', nodeTypes: ['FRAME', 'SECTION', 'COMPONENT'] })`.
+1. If the user already selected nodes in Figma: Call `call_mcp_tool('figma_mcp_android', 'get_selection', {})`.
+2. If the user provides a screen name or URL: Call `call_mcp_tool('figma_mcp_android', 'search_nodes', { query: '<ScreenName>', nodeTypes: ['FRAME', 'SECTION', 'COMPONENT'] })`.
 3. Confirm the target `nodeId` with the user if multiple matching frames are found.
 
 ### Step 2: High-Level Tree Scan (Token Efficiency)
@@ -60,25 +60,25 @@ digraph figma_analyzer {
 NEVER call `get_document` on the entire Figma file, as the massive payload will exhaust context window limits.
 </HARD-GATE>
 
-1. Call `call_mcp_tool('figma-mcp-android', 'get_design_context', { depth: 2, detail: 'minimal' })` to obtain top-level structural layout (e.g., TopBar, Content Area, Bottom Navigation/CTA Bar).
-2. Call `call_mcp_tool('figma-mcp-android', 'get_design_context', { depth: 3, detail: 'compact', dedupe_components: true })` on specific container frames to inspect nested layout items.
+1. Call `call_mcp_tool('figma_mcp_android', 'get_design_context', { depth: 2, detail: 'minimal' })` to obtain top-level structural layout (e.g., TopBar, Content Area, Bottom Navigation/CTA Bar).
+2. Call `call_mcp_tool('figma_mcp_android', 'get_design_context', { depth: 3, detail: 'compact', dedupe_components: true })` on specific container frames to inspect nested layout items.
 
 ### Step 3: Deep Property Extraction
 1. **Text & Typography**:
-   - Call `call_mcp_tool('figma-mcp-android', 'scan_text_nodes', { nodeId: '<targetNodeId>', depth: 4 })`.
+   - Call `call_mcp_tool('figma_mcp_android', 'scan_text_nodes', { nodeId: '<targetNodeId>', depth: 4 })`.
    - Distinguish static strings (to be placed in `strings.xml`) from dynamic strings (fed from API/State).
    - Record `fontSize`, `fontWeight`, `lineHeight`, and `color`.
 2. **Icons, Vector Assets & Raster Images**:
-   - Call `call_mcp_tool('figma-mcp-android', 'scan_nodes_by_types', { nodeTypes: ['COMPONENT', 'INSTANCE', 'VECTOR', 'FRAME'], depth: 4 })`.
+   - Call `call_mcp_tool('figma_mcp_android', 'scan_nodes_by_types', { nodeTypes: ['COMPONENT', 'INSTANCE', 'VECTOR', 'FRAME'], depth: 4 })`.
    - **Vector Icons**: Identify top-level icon container nodes for SVG export to `res/drawable/ic_<name>.xml`.
    - **Raster Images & Complex Artwork**: Identify artwork, background cards, hero graphics, and complex multi-color assets for export and rendering via Landscapist `GlideImage` or Compose `painterResource`.
 3. **Prototype Reactions (User Interactions & Flows)**:
-   - Call `call_mcp_tool('figma-mcp-android', 'get_reactions', { nodeId: '<buttonOrCardNodeId>' })`.
+   - Call `call_mcp_tool('figma_mcp_android', 'get_reactions', { nodeId: '<buttonOrCardNodeId>' })`.
    - Extract triggers (`ON_CLICK`, `AFTER_TIMEOUT`) and actions (Navigate to Node, Open Overlay/BottomSheet, Back, Open URL).
 4. **Dev Annotations**:
-   - Call `call_mcp_tool('figma-mcp-android', 'get_annotations', { nodeId: '<targetNodeId>' })` for developer notes or measurement specs.
+   - Call `call_mcp_tool('figma_mcp_android', 'get_annotations', { nodeId: '<targetNodeId>' })` for developer notes or measurement specs.
 5. **Design Tokens**:
-   - Call `call_mcp_tool('figma-mcp-android', 'export_tokens', { format: 'json' })` or `get_styles` for color schemes, shadows, and corner radiuses.
+   - Call `call_mcp_tool('figma_mcp_android', 'export_tokens', { format: 'json' })` or `get_styles` for color schemes, shadows, and corner radiuses.
 
 ### Step 4: Layout & Component Breakdown
 Map each layout section against [references/layout-mapping-guide.md](./references/layout-mapping-guide.md):

@@ -5,7 +5,7 @@ description: "Extracts assets from Figma to Android: batch exports SVG icons and
 
 # Figma Asset & Token Extractor
 
-This skill automates the extraction of visual assets (Icons, Images, Design Tokens) from Figma directly into Android Resource directories (`res/drawable/`, `res/values/`, or `:core:designsystem` Kotlin theme tokens) via the `figma-mcp-android` MCP server.
+This skill automates the extraction of visual assets (Icons, Images, Design Tokens) from Figma directly into Android Resource directories (`res/drawable/`, `res/values/`, or `:core:designsystem` Kotlin theme tokens) via the `figma_mcp_android` MCP server.
 
 ---
 
@@ -35,7 +35,7 @@ digraph asset_pipeline {
 2. Format file names as `ic_<feature_or_name>.xml` (snake_case, lowercase, no hyphens).
 
 ### Step 2: Export Temporary SVGs
-Call `call_mcp_tool('figma-mcp-android', 'save_screenshots', ...)` to write SVGs to a temporary directory:
+Call `call_mcp_tool('figma_mcp_android', 'save_screenshots', ...)` to write SVGs to a temporary directory:
 ```json
 {
   "format": "SVG",
@@ -55,7 +55,7 @@ Call `call_mcp_tool('figma-mcp-android', 'save_screenshots', ...)` to write SVGs
 ```
 
 ### Step 3: Batch Convert to Android VectorDrawable
-Call `call_mcp_tool('figma-mcp-android', 'convert_svg_to_android_drawable', ...)` to write XMLs directly into `res/drawable/`:
+Call `call_mcp_tool('figma_mcp_android', 'convert_svg_to_android_drawable', ...)` to write XMLs directly into `res/drawable/`:
 ```json
 {
   "items": [
@@ -106,7 +106,7 @@ GlideImage(
 
 ## 3. Design Token Extraction (Colors, Typography & Spacing)
 
-1. Call `call_mcp_tool('figma-mcp-android', 'export_tokens', { format: 'json' })`.
+1. Call `call_mcp_tool('figma_mcp_android', 'export_tokens', { format: 'json' })`.
 2. Parse token JSON output:
    - Color definitions (`colorPrimary`, `colorBgContainer`, `colorText`, `colorError`).
    - Dimension/spacing definitions (`spacing.xs = 4.dp`, `spacing.sm = 8.dp`, `spacing.md = 16.dp`).

@@ -5,7 +5,7 @@ Whenever a Figma URL (`https://www.figma.com/...`) or `node-id` is provided in a
 - **Do not guess UI layouts or code blindly.**
 - Immediately activate the `figma-design-analyzer` (or `figma-to-compose`) skill.
 - Parse the `node-id` from the URL.
-- Execute Figma MCP tools (`figma-mcp-android`: `get_design_context`, `scan_text_nodes`, `export_tokens`, etc.) to retrieve accurate design specs, colors, spacing, and assets BEFORE generating code or plans.
+- Execute Figma MCP tools (`figma_mcp_android`: `get_design_context`, `scan_text_nodes`, `export_tokens`, etc.) to retrieve accurate design specs, colors, spacing, and assets BEFORE generating code or plans.
 
 ## 2. Android Code Safety & Architecture
 - Maintain Clean Architecture and Orbit MVI patterns (`ContainerHost`, `intent`, `reduce`, `postSideEffect`).

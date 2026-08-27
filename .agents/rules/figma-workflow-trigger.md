@@ -16,7 +16,7 @@ Whenever the user's prompt or message contains a **Figma URL** (e.g., `https://w
    - Extract the file key and `node-id` parameter from the URL.
    - Note: URLs encode colons as `%3A` or `-` (e.g. `node-id=123%3A456` or `node-id=123-456`). Convert this to the standard `123:456` format for MCP tool queries.
 
-3. **EXECUTE FIGMA MCP CALLS (`figma-mcp-android`)**:
+3. **EXECUTE FIGMA MCP CALLS (`figma_mcp_android`)**:
    - Query the target node using `get_design_context` (use `depth: 2` or `3`, `detail: "compact"`, `dedupe_components: true` to conserve tokens).
    - Extract typography and text using `scan_text_nodes`.
    - Extract design tokens, color palette, and spacing using `get_styles` / `export_tokens`.

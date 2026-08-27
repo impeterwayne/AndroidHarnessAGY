@@ -1,6 +1,6 @@
 # Figma MCP Tools Reference & Best Practices
 
-MCP Server: `figma-mcp-android`
+MCP Server: `figma_mcp_android`
 
 ## 1. Tool Catalog & Capabilities
 
@@ -34,8 +34,8 @@ Figma documents can contain tens of thousands of nodes. **NEVER call `get_docume
 
 ### Recommended Exploration Workflow:
 1. **Locate Target**:
-   - If user selected nodes in Figma: `call_mcp_tool('figma-mcp-android', 'get_selection', {})`
-   - If user specified a screen name: `call_mcp_tool('figma-mcp-android', 'search_nodes', { query: 'ScreenName', nodeTypes: ['FRAME', 'SECTION', 'COMPONENT'] })`
+   - If user selected nodes in Figma: `call_mcp_tool('figma_mcp_android', 'get_selection', {})`
+   - If user specified a screen name: `call_mcp_tool('figma_mcp_android', 'search_nodes', { query: 'ScreenName', nodeTypes: ['FRAME', 'SECTION', 'COMPONENT'] })`
 2. **Explore Structure Progressively**:
    - Step 1: `get_design_context` with `depth: 2, detail: 'minimal'` to understand high-level section layout (Header, Content, BottomBar).
    - Step 2: `get_design_context` or `get_node` with `depth: 2, detail: 'full', dedupe_components: true` on specific container nodes.
