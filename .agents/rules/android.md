@@ -1,4 +1,8 @@
-# Workspace Agent Guidelines
+---
+trigger: always_on
+---
+
+# Android Workspace Rule: Architecture, Design System & Resources
 
 ## 1. Android Code Safety & Architecture
 - Maintain Clean Architecture and Orbit MVI patterns (`ContainerHost`, `intent`, `reduce`, `postSideEffect`).

@@ -1,6 +1,6 @@
 {
   "kotlin-rule-gate": {
-    "_comment": "Enforces AGENTS.md / rules/lean.md on agent writes to *.kt: no // or /* */ comments (KDoc allowed), no literal strings in user-facing Compose params, no raw hex colors outside :core:designsystem. PreToolUse rather than PostToolUse because the PostToolUse payload carries no toolCall, so it cannot know the target file. Fails open on any error or unrecognised argument shape. Verified: 13/13 fixtures, 0 false positives across the 90 files in CodebaseCompose. Pass verdict is 'ask' (normal approval flow preserved); flip PASS_DECISION in rule_gate.py to 'allow' to auto-approve clean Kotlin writes.",
+    "_comment": "Enforces rules/android.md / rules/lean.md on agent writes to *.kt: no // or /* */ comments (KDoc allowed), no literal strings in user-facing Compose params, no raw hex colors outside :core:designsystem. PreToolUse rather than PostToolUse because the PostToolUse payload carries no toolCall, so it cannot know the target file. Fails open on any error or unrecognised argument shape. Verified: 13/13 fixtures, 0 false positives across the 90 files in CodebaseCompose. Pass verdict is 'ask' (normal approval flow preserved); flip PASS_DECISION in rule_gate.py to 'allow' to auto-approve clean Kotlin writes.",
     "enabled": true,
     "PreToolUse": [
       {

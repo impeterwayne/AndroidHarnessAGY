@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse gate: enforce this workspace's Kotlin rules on agent file writes.
 
-Turns assertions that currently live only in prompts (AGENTS.md, rules/lean.md)
+Turns assertions that currently live only in prompts (rules/android.md, rules/lean.md)
 into deterministic checks:
 
   kotlin-comment    no `//` or block comments in Kotlin sources (KDoc `/** */` is allowed)
@@ -277,7 +277,7 @@ def hook_mode():
                         f"Workspace rule violation in {Path(path).name} "
                         f"({len(violations)} issue(s)). Fix and retry:\n"
                         + "\n".join(lines)
-                        + "\nSee AGENTS.md and .agents/rules/lean.md."
+                        + "\nSee .agents/rules/android.md and .agents/rules/lean.md."
                     ),
                 }
     except Exception as exc:

@@ -27,7 +27,7 @@ This skill handles translating Figma design specifications and assets into produ
 - Resource Management: `android-resource-policy`
 - Component API shape (modifier params, slots, content lambdas): `compose-component-design`
 - State ownership, hoisting, and effects: `compose-state-and-effects`
-- Project Style Guide: `.agents/rules/lean.md` (YAGNI, reuse-first, NO comments, null-safety) and `AGENTS.md` (AppTheme tokens, string resources, Orbit MVI)
+- Project Style Guide: `.agents/rules/lean.md` (YAGNI, reuse-first, NO comments, null-safety) and `.agents/rules/android.md` (AppTheme tokens, string resources, Orbit MVI)
 
 ---
 
