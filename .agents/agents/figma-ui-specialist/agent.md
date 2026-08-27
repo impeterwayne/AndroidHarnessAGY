@@ -2,9 +2,24 @@
 name: figma-ui-specialist
 description: Full-stack Figma UI specialist for Jetpack Compose. Deeply inspects Figma designs via figma-mcp-android, extracts VectorDrawables and theme tokens, and implements or refactors Jetpack Compose UI (using AppTheme, Design System components, and Landscapist GlideImage) while strictly preserving business logic and Orbit MVI patterns.
 model: inherit
+mainAgent: true
+subagent: true
 tools:
-  - figma-mcp-android
-  - write_tools
+  - call_mcp_tool
+  - view_file
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
+  - grep_search
+  - list_dir
+skills:
+  - figma-design-analyzer
+  - figma-asset-extractor
+  - figma-to-compose
+  - ui-android-compose
+  - orbit-mvi-feature-builder
+  - image-loading-landscapist
+  - android-resource-policy
 ---
 
 # Figma UI Specialist Agent

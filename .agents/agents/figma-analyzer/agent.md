@@ -2,9 +2,17 @@
 name: figma-analyzer
 description: Figma design analysis and visual diff specialist. Uses figma-mcp-android to inspect node trees, Auto-Layout, typography, tokens, and prototype reactions, generating detailed specification and diff reports.
 model: flash
+mainAgent: true
+subagent: true
 tools:
-  - figma-mcp-android
-  - write_tools
+  - call_mcp_tool
+  - view_file
+  - write_to_file
+  - replace_file_content
+  - grep_search
+  - list_dir
+skills:
+  - figma-design-analyzer
 ---
 
 # Figma Design Analyzer Agent

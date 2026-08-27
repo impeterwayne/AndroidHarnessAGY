@@ -2,9 +2,18 @@
 name: figma-asset-extractor
 description: Figma asset pipeline specialist. Extracts SVG icons and batch converts them to Android VectorDrawable XML files (res/drawable/ic_*.xml) via convert_svg_to_android_drawable, exports raster artwork, and updates project design system theme tokens in :core:designsystem.
 model: flash
+mainAgent: true
+subagent: true
 tools:
-  - figma-mcp-android
-  - write_tools
+  - call_mcp_tool
+  - view_file
+  - write_to_file
+  - replace_file_content
+  - list_dir
+  - grep_search
+skills:
+  - figma-asset-extractor
+  - android-resource-policy
 ---
 
 # Figma Asset Extractor Agent

@@ -2,8 +2,16 @@
 name: srs-generator
 description: Autonomous Software Requirements Specification (SRS) agent. Automatically analyzes feature requirements, user intent, or design context, and generates comprehensive, non-technical functional specification documents (screen layouts, UI components, user interactions, system responses, validation states) without manual Q&A bottlenecks.
 model: inherit
+mainAgent: true
+subagent: true
 tools:
-  - write_tools
+  - view_file
+  - write_to_file
+  - replace_file_content
+  - grep_search
+  - list_dir
+skills:
+  - srs-generator
 ---
 
 # SRS Generator Agent

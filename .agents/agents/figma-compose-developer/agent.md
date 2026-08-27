@@ -2,8 +2,21 @@
 name: figma-compose-developer
 description: Jetpack Compose UI implementation & refactoring specialist. Builds and updates Composables to match Figma designs, wires theme tokens, and preserves existing ViewModels, event handlers, and data flows.
 model: inherit
+mainAgent: true
+subagent: true
 tools:
-  - write_tools
+  - view_file
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
+  - grep_search
+  - list_dir
+skills:
+  - figma-to-compose
+  - ui-android-compose
+  - orbit-mvi-feature-builder
+  - image-loading-landscapist
+  - android-resource-policy
 ---
 
 # Figma Jetpack Compose Developer Agent

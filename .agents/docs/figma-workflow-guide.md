@@ -27,6 +27,10 @@ This guide outlines the streamlined **Skills** and **Agents** ecosystem configur
 │   ├── code-style-guide.md
 │   ├── figma-workflow-trigger.md
 │   └── ponytail.md
+├── workflows/
+│   ├── figma-to-compose.md
+│   ├── feature-orbit-mvi.md
+│   └── code-review.md
 └── docs/
     ├── architecture.md
     └── figma-workflow-guide.md
