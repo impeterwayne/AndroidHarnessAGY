@@ -17,6 +17,8 @@ Use this skill when work involves any of the following:
 - creating or updating a stateless `[Feature]Screen.kt`
 - extracting feature UI blocks into `components/`
 - wiring a `[Feature]Graph.kt` with Orbit state and side-effects
+- defining the domain and data contracts a new feature flow needs (`:core:model`,
+  `:core:domain`, `:core:data`) — see Stage 0
 
 Do not use this skill when the request is limited to:
 - data, database, or network layer work with no feature UI changes
@@ -67,6 +69,27 @@ Inspect any active feature modules under `:feature:*`. If an existing feature is
 Execute the workflow stages below in order. Skip only stages that are genuinely out of scope for the request.
 
 ## Workflow
+
+### Stage 0: Domain and Data Contracts
+
+Only when the feature needs data that does not yet have a domain contract. A screen that
+consumes existing use cases starts at Stage 1.
+
+**Must do:**
+- Define domain models in `:core:model`.
+- Define the repository interface in `:core:domain`.
+- Define use cases in `:core:domain` — single responsibility, `operator fun invoke`.
+- Implement the repository in `:core:data`, coordinating the network `ApiService` and the Room
+  database.
+
+**Must not do:**
+- Do not let `:feature:*` depend on `:core:data` or on network types; the feature depends on
+  `:core:domain` only.
+- Do not add a use case that wraps a single repository call with no logic of its own — call the
+  repository through the existing one.
+
+**Success criteria:**
+- The feature module compiles against `:core:domain` alone, with no data or network dependency.
 
 ### Stage 1: Define or Update the Route
 

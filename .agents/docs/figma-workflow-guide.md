@@ -8,29 +8,25 @@ This guide outlines the streamlined **Skills** and **Agents** ecosystem configur
 
 ```text
 .agents/
-├── agents/                       # Custom Agent & Subagent definitions
-│   ├── figma-ui-specialist/
-│   │   └── agent.md
-│   ├── figma-analyzer/
-│   │   └── agent.md
-│   ├── figma-asset-extractor/
-│   │   └── agent.md
-│   └── figma-compose-developer/
-│       └── agent.md
-├── skills/                       # Procedural workflow skills
+├── agents/                       # Custom Agent & Subagent definitions (flat <name>.md)
+│   ├── figma-ui-specialist.md
+│   ├── figma-analyzer.md
+│   ├── figma-asset-extractor.md
+│   ├── figma-compose-developer.md
+│   └── srs-generator.md
+├── skills/                       # Procedural skills — also what `/<name>` resolves to
 │   ├── figma-design-analyzer/
 │   ├── figma-asset-extractor/
 │   ├── figma-to-compose/
 │   ├── android-resource-policy/
-│   └── android-code-indexer/
+│   ├── android-code-indexer/
+│   └── code-review/
 ├── rules/
-│   ├── code-style-guide.md
 │   ├── figma-workflow-trigger.md
 │   └── ponytail.md
-├── workflows/
-│   ├── figma-to-compose.md
-│   ├── feature-orbit-mvi.md
-│   └── code-review.md
+├── hooks.json                    # Lifecycle hook profiles
+├── hooks/                        # Hook handler scripts
+├── scripts/                      # CLIs the agent calls (loop.py)
 └── docs/
     ├── architecture.md
     └── figma-workflow-guide.md
@@ -42,10 +38,10 @@ This guide outlines the streamlined **Skills** and **Agents** ecosystem configur
 
 | Agent Name | Definition File | Primary Role |
 |---|---|---|
-| **`figma-ui-specialist`** | [`.agents/agents/figma-ui-specialist/agent.md`](../agents/figma-ui-specialist/agent.md) | **Full-Stack UI Specialist**: End-to-end screen development (inspects Figma, extracts VectorDrawables, updates `AppTheme` tokens, and implements Jetpack Compose layouts with `GlideImage`). |
-| **`figma-analyzer`** | [`.agents/agents/figma-analyzer/agent.md`](../agents/figma-analyzer/agent.md) | **Design Diff Specialist**: Inspects Figma frames, extracts layout specs/typography/assets, and compares against existing code. |
-| **`figma-asset-extractor`** | [`.agents/agents/figma-asset-extractor/agent.md`](../agents/figma-asset-extractor/agent.md) | **Asset Pipeline Engineer**: Batch exports SVGs to `res/drawable/ic_*.xml`, exports raster artwork, and bridges tokens to `:core:designsystem`. |
-| **`figma-compose-developer`** | [`.agents/agents/figma-compose-developer/agent.md`](../agents/figma-compose-developer/agent.md) | **Compose Specialist**: Composable implementation and updates preserving `ViewModel`, Orbit MVI contracts, and `UiState`. |
+| **`figma-ui-specialist`** | [`.agents/agents/figma-ui-specialist.md`](../agents/figma-ui-specialist.md) | **Full-Stack UI Specialist**: End-to-end screen development (inspects Figma, extracts VectorDrawables, updates `AppTheme` tokens, and implements Jetpack Compose layouts with `GlideImage`). |
+| **`figma-analyzer`** | [`.agents/agents/figma-analyzer.md`](../agents/figma-analyzer.md) | **Design Diff Specialist**: Inspects Figma frames, extracts layout specs/typography/assets, and compares against existing code. |
+| **`figma-asset-extractor`** | [`.agents/agents/figma-asset-extractor.md`](../agents/figma-asset-extractor.md) | **Asset Pipeline Engineer**: Batch exports SVGs to `res/drawable/ic_*.xml`, exports raster artwork, and bridges tokens to `:core:designsystem`. |
+| **`figma-compose-developer`** | [`.agents/agents/figma-compose-developer.md`](../agents/figma-compose-developer.md) | **Compose Specialist**: Composable implementation and updates preserving `ViewModel`, Orbit MVI contracts, and `UiState`. |
 
 ---
 

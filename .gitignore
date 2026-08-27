@@ -1,8 +1,16 @@
 # Test codebases
 CodeBaseCompose/
 
+# Agent harness local state (hook probe logs, loop ledgers)
+.agents/state/
+
 # IDE / OS files
 .idea/
 *.iml
 .DS_Store
 Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+oh-my-openagent/

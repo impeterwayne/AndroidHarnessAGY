@@ -30,6 +30,31 @@ This skill handles translating Figma design specifications and assets into produ
 
 ---
 
+## Upstream pipeline — run this before Step 1
+
+The six steps below start once the design is understood and its assets are in the repo. Getting
+there is delegated, because inspecting a Figma tree and converting assets both burn context
+that the implementation needs:
+
+1. **Design context** — parse the file key and `node-id` from the URL (URLs encode the colon
+   as `%3A` or `-`; convert `123-456` to `123:456`). Dispatch `figma-analyzer` to call
+   `get_design_context` with `depth: 2`, `detail: "compact"`, `dedupe_components: true`, and to
+   return typography, Auto-Layout constraints, paddings, colour values and the component
+   hierarchy. Locate the existing screen files in parallel with `android-code-indexer`.
+2. **Assets and tokens** — dispatch `figma-asset-extractor` to batch-convert simple vector
+   icons (24–48dp) into `res/drawable/ic_<name>.xml` via
+   `convert_svg_to_android_drawable`, export raster artwork, and map colours and type sizes
+   onto `com.genesys.core.designsystem.theme.AppTheme`.
+
+Both are one `invoke_subagent` call each — or one call with both, since `Subagents` is an
+array. For a large screen, `figma-compose-developer` can then own Steps 3–4 while you keep the
+contract and the route.
+
+Skip the pipeline when the design was already analysed in this session and the icons already
+exist: re-extracting assets that are on disk is pure cost.
+
+---
+
 ## Standard 6-Step Implementation Workflow
 
 ```dot
