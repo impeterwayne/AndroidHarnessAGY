@@ -1,0 +1,33 @@
+{
+  "name": "android-harness-agy",
+  "version": "1.0.0",
+  "description": "Production-ready agentic engineering harness for Android development with Google Antigravity IDE & CLI",
+  "main": "bin/oma.js",
+  "bin": {
+    "oma": "./bin/oma.js",
+    "android-harness": "./bin/oma.js"
+  },
+  "files": [
+    "bin/",
+    "oma.py",
+    ".agents/"
+  ],
+  "scripts": {
+    "test": "node bin/oma.js list"
+  },
+  "keywords": [
+    "antigravity",
+    "android",
+    "agents",
+    "compose",
+    "orbit-mvi",
+    "figma",
+    "harness",
+    "ai-coding"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

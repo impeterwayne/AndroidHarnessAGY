@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # Lean Engineering Rule: Pragmatic Minimalism & YAGNI
 
 Apply the "Lazy Senior Developer" mindset across all coding, refactoring, and architectural tasks:

@@ -59,7 +59,7 @@ PROFILES: dict[str, dict[str, list[str]]] = {
             "lean-review", "code-review", "document_project", "loop", "ultrawork",
         ],
         "agents": ["explore", "oracle", "orchestrator", "worker-deep", "worker-quick"],
-        "rules": ["lean"],
+        "rules": ["orchestrate", "lean"],
     },
     "figma": {
         "skills": [
@@ -70,7 +70,7 @@ PROFILES: dict[str, dict[str, list[str]]] = {
             "explore", "figma-analyzer", "figma-asset-extractor",
             "figma-compose-developer", "orchestrator",
         ],
-        "rules": ["figma", "android", "lean"],
+        "rules": ["figma", "android", "orchestrate", "lean"],
     },
     "android": {
         "skills": [
@@ -89,7 +89,7 @@ PROFILES: dict[str, dict[str, list[str]]] = {
             "scrcpy", "styles", "testing-setup", "translate-strings", "ultrawork",
         ],
         "agents": ["explore", "oracle", "orchestrator", "worker-deep", "worker-quick"],
-        "rules": ["android", "lean"],
+        "rules": ["android", "orchestrate", "lean"],
     },
 }
 

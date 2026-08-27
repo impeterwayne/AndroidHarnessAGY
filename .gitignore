@@ -1,5 +1,6 @@
 # Test codebases
 CodeBaseCompose/
+SocialNetworkCrawler/
 
 # Agent harness local state (hook probe logs, loop ledgers)
 .agents/state/

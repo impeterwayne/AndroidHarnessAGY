@@ -70,7 +70,25 @@ SOURCE_SUFFIXES = {
     ".py", ".sh", ".ps1", ".json", ".toml", ".properties",
 }
 # Written by agents constantly and harmless; keep them out of the gate.
-EXEMPT_NAMES = {"package.json", "tsconfig.json"}
+# `goals.json` is the ultrawork/loop contract -- gating it blocks step 2 of the very
+# skill this rule exists to serve.
+EXEMPT_NAMES = {"package.json", "tsconfig.json", "goals.json"}
+
+# The invariant is about the *project's* code. An agent's own scratch space lives under
+# ~/.gemini/antigravity-cli/brain/<conversationId>/scratch/ and is not project source, but
+# it is full of .json and .py -- so a suffix test alone denies the agent its notepad.
+PROJECT_ROOT = HOOKS_DIR.parent.parent
+
+
+def in_project(path: str) -> bool:
+    """True if path resolves inside the project that owns this hook. Errs toward True."""
+    try:
+        Path(path).resolve().relative_to(PROJECT_ROOT.resolve())
+        return True
+    except ValueError:
+        return False
+    except Exception:
+        return True
 
 
 def extract_target(args):
@@ -208,7 +226,7 @@ def hook_mode() -> None:
         conversation_id = payload.get("conversationId") or ""
         path = extract_target(call.get("args"))
 
-        if path and is_source(path) and classify(conversation_id) == "root":
+        if path and in_project(path) and is_source(path) and classify(conversation_id) == "root":
             verdict = {
                 "decision": "deny",
                 "reason": (
@@ -237,7 +255,7 @@ def self_test() -> int:
     import shutil
     import tempfile
 
-    global STATE_DIR, OFF_SWITCH
+    global STATE_DIR, OFF_SWITCH, BRAIN_DIR
     tmp = Path(tempfile.mkdtemp(prefix="write-guard-selftest-"))
     failures: list[str] = []
 
@@ -271,6 +289,13 @@ def self_test() -> int:
         brain.mkdir()
         STATE_DIR = tmp / "state"
         OFF_SWITCH = STATE_DIR / "off"
+        # hook_mode() calls classify() with no brain_root, so it reads the module global
+        # rather than the fixture above. Without this line the deny fixtures scan the real
+        # brain dir -- where any session that once viewed THIS FILE has a transcript record
+        # containing both `conv-parent` and the spawn marker, which classifies the fixture
+        # parent as a delegate and silently flips three deny checks to pass. Verified
+        # 2026-08-28: conversation fd47254b did exactly that.
+        BRAIN_DIR = brain
 
         # Record shapes copied from real transcripts, 2026-08-27. The exact strings
         # matter: an earlier version used a plain substring test and misread every
@@ -369,6 +394,20 @@ def self_test() -> int:
                                      "args": {"TargetFile": "a.kt"}}}
                        ).get("decision") == PASS_DECISION)
         check("empty payload passes", run_hook({}).get("decision") == PASS_DECISION)
+
+        # Scope: the invariant is about the project's code, not the agent's notepad.
+        scratch = str(Path.home() / ".gemini" / "antigravity-cli" / "brain"
+                      / "some-conv" / "scratch" / "notes.py")
+        check("root writing outside the project passes",
+              run_hook({"conversationId": parent,
+                        "toolCall": {"name": "write_to_file",
+                                     "args": {"TargetFile": scratch}}}
+                       ).get("decision") == PASS_DECISION)
+        check("root writing goals.json passes (ultrawork step 2)",
+              run_hook({"conversationId": parent,
+                        "toolCall": {"name": "write_to_file",
+                                     "args": {"TargetFile": "goals.json"}}}
+                       ).get("decision") == PASS_DECISION)
 
         # --- escape hatch ---------------------------------------------------
         STATE_DIR.mkdir(parents=True, exist_ok=True)
