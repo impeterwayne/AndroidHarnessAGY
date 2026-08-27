@@ -9,7 +9,7 @@ Whenever the user's prompt or message contains a **Figma URL** (e.g., `https://w
 ## Mandatory Execution Protocol:
 
 1. **AUTOMATIC SKILL ACTIVATION**:
-   - Immediately activate and follow the `figma-design-analyzer` skill (and `figma-to-compose` for UI implementation).
+   - Immediately activate and follow the `figma-design-analyzer` skill (and `figma2compose` for UI implementation).
    - Do NOT skip to writing code or making guesses without inspecting the Figma node.
 
 2. **PARSE FIGMA URL & NODE ID**:
@@ -26,4 +26,4 @@ Whenever the user's prompt or message contains a **Figma URL** (e.g., `https://w
 
 4. **OUTPUT & IMPLEMENTATION**:
    - For new screens / specs: generate `docs/<feature>/figma-spec.md` or present the UI structure.
-   - For UI implementation: follow `figma-to-compose` (using `com.genesys.core.designsystem.theme.AppTheme` design tokens, design system components, and Skydoves Landscapist `GlideImage`), ensuring strict adherence to the extracted tokens, dimensions, and colors while preserving existing ViewModel/business logic.
+   - For UI implementation: follow `figma2compose` (using `com.genesys.core.designsystem.theme.AppTheme` design tokens, design system components, and Skydoves Landscapist `GlideImage`), ensuring strict adherence to the extracted tokens, dimensions, and colors while preserving existing ViewModel/business logic.

@@ -1,5 +1,5 @@
 ---
-name: figma-to-compose
+name: figma2compose
 description: "Transforms analyzed Figma designs and extracted assets into production-ready Jetpack Compose code following Clean Architecture + MVI: builds Stateless Composables, maps Auto-Layout (Row, Column, Box, LazyColumn), applies Design Tokens/Theme, structures MVI Contracts (UiState, Event, SideEffect), and generates complete Previews. Use when implementing Jetpack Compose UI from Figma designs, URLs, or node IDs."
 ---
 
@@ -40,16 +40,19 @@ that the implementation needs:
 1. **Design context** — parse the file key and `node-id` from the URL (URLs encode the colon
    as `%3A` or `-`; convert `123-456` to `123:456`). Dispatch `figma-analyzer` to call
    `get_design_context` with `depth: 2`, `detail: "compact"`, `dedupe_components: true`, and to
-   return typography, Auto-Layout constraints, paddings, colour values and the component
-   hierarchy. Locate the existing screen files in parallel with `android-code-indexer`.
-2. **Assets and tokens** — dispatch `figma-asset-extractor` to batch-convert simple vector
-   icons (24–48dp) into `res/drawable/ic_<name>.xml` via
-   `convert_svg_to_android_drawable`, export raster artwork, and map colours and type sizes
-   onto `com.genesys.core.designsystem.theme.AppTheme`.
+   write `docs/<feature>/figma-spec.md` covering the Auto-Layout to Compose mapping, typography,
+   token names, the asset list, and the prototype reactions. Locate the existing screen files in
+   parallel with `android-code-indexer`.
+2. **Assets and tokens** — once the spec exists, dispatch `figma-asset-extractor` against its
+   asset list to batch-convert simple vector icons (24–48dp) into `res/drawable/ic_<name>.xml`
+   via `convert_svg_to_android_drawable`, export raster artwork, and fill token gaps in
+   `com.genesys.core.designsystem.theme.AppTheme`.
 
-Both are one `invoke_subagent` call each — or one call with both, since `Subagents` is an
-array. For a large screen, `figma-compose-developer` can then own Steps 3–4 while you keep the
-contract and the route.
+Step 1 goes alone — nothing downstream can start without the spec. Step 2 and the
+implementation below touch disjoint files, so dispatch `figma-asset-extractor` and
+`figma-compose-developer` together in one `invoke_subagent` call (`Subagents` is an array) and
+let the implementer check asset names against the spec. Keep the MVI contract and the route
+yourself if you would rather not hand the whole screen over.
 
 Skip the pipeline when the design was already analysed in this session and the icons already
 exist: re-extracting assets that are on disk is pure cost.
@@ -59,7 +62,7 @@ exist: re-extracting assets that are on disk is pure cost.
 ## Standard 6-Step Implementation Workflow
 
 ```dot
-digraph figma_to_compose {
+digraph figma2compose {
     "1. Synchronize Resources\n(Strings, Icons, Colors)" [shape=box];
     "2. Define MVI Contract\n(UiState, Event, SideEffect)" [shape=box];
     "3. Build Stateless Components" [shape=box];

@@ -30,8 +30,9 @@ describing the diff you would apply, stop and delegate it instead.
 | `oracle` | Architecture trade-offs, review of finished work, debugging after 2+ failed attempts | expensive |
 | `worker-quick` | One file, known location, mechanical change | cheap |
 | `worker-deep` | Multi-file features, refactors, anything needing a build or test run | expensive |
-| `figma-ui-specialist` | Figma-sourced UI work — it owns the asset and token pipeline | expensive |
-| `srs-generator` | Requirements documents | — |
+| `figma-analyzer` | Stage 1 of Figma work — read-only inspection, writes `docs/<feature>/figma-spec.md` | expensive |
+| `figma-asset-extractor` | Stage 2 — SVG to `res/drawable/ic_*.xml`, tokens into `:core:designsystem` | medium |
+| `figma-compose-developer` | Stage 3 — Compose UI from the spec, MVI contract, previews | expensive |
 
 Dispatch with `invoke_subagent`, passing `TypeName` = the agent's `name:`. The
 `Subagents` argument is an array, so N parallel spawns are one call.
@@ -65,7 +66,8 @@ sentences, propose the alternative, and ask whether to proceed anyway.
 
 Ask in order:
 
-1. Is there a **named specialist** for this? (Figma work → `figma-ui-specialist`.)
+1. Is there a **named specialist** for this? (A Figma URL or node-id → the Figma
+   pipeline below.)
 2. Otherwise, which **tier** fits? One file and mechanical → `worker-quick`. Anything
    else that writes code → `worker-deep`.
 3. Which **skills** should the worker load? Name them in the prompt; the worker's own
@@ -75,6 +77,25 @@ Default bias is delegate. There is no third option where you do it yourself.
 
 Split work into parallel spawns whenever two tasks touch disjoint files. Sequence them
 only when one genuinely needs the other's output.
+
+### The Figma pipeline
+
+The three Figma agents are staged, and none of them can delegate — only you hold
+`invoke_subagent`, so you are the one who sequences them:
+
+1. `figma-analyzer` alone first. Nothing downstream can start without the spec, and the
+   design is the biggest thing that enters any context — that is why it gets its own.
+   Fire an `explore` alongside it to locate the existing screen files.
+2. Then `figma-asset-extractor` and `figma-compose-developer` **in parallel** — one call,
+   since `Subagents` is an array. They touch disjoint files (`res/` and
+   `:core:designsystem` versus the feature module), and stage 3 verifies the asset names
+   against the spec rather than against the files, so it does not need stage 2 finished.
+3. Verify stage 3's build evidence. If a drawable or token name mismatched, re-dispatch
+   the *one* stage that got it wrong, quoting the mismatch.
+
+Skip stage 1 when the spec already exists from this session, and skip stage 2 when the
+spec lists no new assets or tokens. Re-inspecting a design or re-exporting icons already
+on disk is pure cost. For a spec-only or visual-diff request, stage 1 is the whole job.
 
 ## Phase 2 — the delegation prompt
 
