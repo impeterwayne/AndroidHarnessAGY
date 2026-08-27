@@ -8,8 +8,8 @@ tools:
   - grep_search
   - list_dir
 skills:
-  - ponytail-review
-  - ponytail-debt
+  - lean-review
+  - lean-debt
   - android-profiler
   - r8-analyzer
 ---

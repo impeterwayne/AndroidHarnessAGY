@@ -23,7 +23,7 @@ This guide outlines the streamlined **Skills** and **Agents** ecosystem configur
 │   └── code-review/
 ├── rules/
 │   ├── figma-workflow-trigger.md
-│   └── ponytail.md
+│   └── lean.md
 ├── hooks.json                    # Lifecycle hook profiles
 ├── hooks/                        # Hook handler scripts
 ├── scripts/                      # CLIs the agent calls (loop.py)

@@ -1,0 +1,66 @@
+{
+  "eval_id": 1,
+  "eval_name": "happy-path-feature-mvi",
+  "prompt": "feature2 is still an empty Box. Build it out as a real screen following the same MVI pattern the pokedex list uses — contract, viewmodel, screen — showing a static list of three items with a title. Wire it into the existing Feature2Graph.",
+  "treatment": "delegate implementation to worker-deep with orbit-mvi-feature-builder",
+  "without_skill_setup": "same prompt in a plain session; do not dispatch a worker, do not name a skill",
+  "files": [
+    "feature/feature2/src/main/java/com/genesys/feature/feature2/presentation/Feature2Screen.kt",
+    "feature/feature2/src/main/java/com/genesys/feature/feature2/navigation/Feature2Graph.kt",
+    "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexContract.kt",
+    "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexViewModel.kt",
+    "core/common/src/main/java/com/genesys/core/common/base/BaseViewModel.kt"
+  ],
+  "assertions": [
+    {
+      "id": "delegated-not-self",
+      "text": "The implementation was written inside an invoke_subagent call, not by the session that received the prompt",
+      "type": "manual"
+    },
+    {
+      "id": "tier-is-deep",
+      "text": "Tier selected is worker-deep (multi-file, needs a build), not worker-quick",
+      "type": "manual"
+    },
+    {
+      "id": "contract-shape",
+      "text": "Contract declares UiState / sealed interface Action / sealed interface SideEffect against com.genesys.core.common.base.mvi, matching PokedexContract.kt",
+      "type": "manual"
+    },
+    {
+      "id": "basevm-container",
+      "text": "ViewModel extends BaseViewModel<State, SideEffect, Action> and declares `override val container = container<...>(...)`",
+      "type": "manual"
+    },
+    {
+      "id": "no-comments",
+      "text": "No `//` or `/* */` comments in any written Kotlin (KDoc permitted)",
+      "type": "manual"
+    },
+    {
+      "id": "strings-resourced",
+      "text": "User-facing text uses stringResource(); new entries added to feature/feature2/src/main/res/values/strings.xml",
+      "type": "manual"
+    },
+    {
+      "id": "tokens-not-hex",
+      "text": "Colors come from AppColorScheme / theme tokens, not raw hex literals",
+      "type": "manual"
+    },
+    {
+      "id": "delegation-packet",
+      "text": "The dispatch prompt carries the six sections (TASK / EXPECTED OUTCOME / MUST DO / MUST NOT DO / CONTEXT / SKILLS)",
+      "type": "manual"
+    },
+    {
+      "id": "build-evidence",
+      "text": "A real build or test invocation is reported with its output, not a claim that it 'should pass'",
+      "type": "manual"
+    },
+    {
+      "id": "verified-by-reading",
+      "text": "The dispatching session re-read the written files before accepting the worker's report",
+      "type": "manual"
+    }
+  ]
+}

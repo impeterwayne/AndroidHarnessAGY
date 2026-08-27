@@ -1,0 +1,41 @@
+{
+  "run_id": "eval-5-without_skill",
+  "conversation_id": null,
+  "expectations": [
+    {
+      "text": "intent_gate injected the ultrawork directive exactly once for the triggering prompt",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "loop.py create-goals ran and was accepted — two goals, each with stop_when and expected_evidence",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Pass conditions are checkable facts, not activities ('rule_gate --scan reports 0 violations', not 'clean up the comments')",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "ledger.jsonl gains a checkpoint entry per goal; goals.json does not drift (reconstruct --check passes)",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Both requested items fully delivered — no stubs, no TODOs — and nothing beyond them invented",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "stop_verifier resumes at most twice per goal; the session ends on a permit, not on the runtime's own cap",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Nothing is committed — ultrawork dropped OMO's mandatory-commit discipline",
+      "passed": null,
+      "evidence": ""
+    }
+  ]
+}

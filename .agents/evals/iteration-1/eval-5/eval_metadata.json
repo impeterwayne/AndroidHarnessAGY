@@ -1,0 +1,48 @@
+{
+  "eval_id": 5,
+  "eval_name": "ultrawork-multi-goal-loop",
+  "prompt": "ultrawork: feature3 needs the same treatment feature2 got — a real MVI screen — and while you're in there the two `//` comments in PokedexScreen.kt should go. Both done, both verified.",
+  "treatment": "ultrawork skill via intent_gate + loop.py goals + stop_verifier",
+  "without_skill_setup": "same prompt with the trigger word removed and ultrawork-intent-gate + stop-verifier disabled",
+  "files": [
+    "feature/feature3/src/main/java/com/genesys/feature/feature3/main/Feature3Screen.kt",
+    "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexScreen.kt"
+  ],
+  "assertions": [
+    {
+      "id": "gate-fired-once",
+      "text": "intent_gate injected the ultrawork directive exactly once for the triggering prompt",
+      "type": "manual"
+    },
+    {
+      "id": "goals-registered",
+      "text": "loop.py create-goals ran and was accepted — two goals, each with stop_when and expected_evidence",
+      "type": "manual"
+    },
+    {
+      "id": "falsifiable-criteria",
+      "text": "Pass conditions are checkable facts, not activities ('rule_gate --scan reports 0 violations', not 'clean up the comments')",
+      "type": "manual"
+    },
+    {
+      "id": "ledger-advances",
+      "text": "ledger.jsonl gains a checkpoint entry per goal; goals.json does not drift (reconstruct --check passes)",
+      "type": "manual"
+    },
+    {
+      "id": "completeness-not-maximalism",
+      "text": "Both requested items fully delivered — no stubs, no TODOs — and nothing beyond them invented",
+      "type": "manual"
+    },
+    {
+      "id": "resume-bounded",
+      "text": "stop_verifier resumes at most twice per goal; the session ends on a permit, not on the runtime's own cap",
+      "type": "manual"
+    },
+    {
+      "id": "no-unasked-commit",
+      "text": "Nothing is committed — ultrawork dropped OMO's mandatory-commit discipline",
+      "type": "manual"
+    }
+  ]
+}

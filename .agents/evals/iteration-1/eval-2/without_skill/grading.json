@@ -1,0 +1,36 @@
+{
+  "run_id": "eval-2-without_skill",
+  "conversation_id": null,
+  "expectations": [
+    {
+      "text": "Tier selected is worker-quick — known locations, mechanical change",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Notices that core/designsystem has no strings.xml and either creates one or states why the string belongs elsewhere — rather than silently writing into the wrong module",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "The PokemonCard string lands in feature/pokedex/src/main/res/values/strings.xml",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Uses stringResource() with the androidx.compose.ui.res import added",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Only the two call sites and the resource files change — no refactor, no reformatting, no unrelated fixes",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "The write passes kotlin-rule-gate on the first attempt (no denial round-trip)",
+      "passed": null,
+      "evidence": ""
+    }
+  ]
+}

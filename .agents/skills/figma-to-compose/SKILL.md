@@ -25,8 +25,9 @@ This skill handles translating Figma design specifications and assets into produ
 - Layout Mapping: [figma-design-analyzer/references/layout-mapping-guide.md](../figma-design-analyzer/references/layout-mapping-guide.md)
 - MVI Contract Derivation: [references/mvi-contract-from-figma.md](./references/mvi-contract-from-figma.md)
 - Resource Management: `android-resource-policy`
-- Compose Best Practices: `ui-android-compose`
-- Project Style Guide: `.agents/rules/code-style-guide.md` (NO comments, YAGNI, Null-safety)
+- Component API shape (modifier params, slots, content lambdas): `compose-component-design`
+- State ownership, hoisting, and effects: `compose-state-and-effects`
+- Project Style Guide: `.agents/rules/lean.md` (YAGNI, reuse-first, NO comments, null-safety) and `AGENTS.md` (AppTheme tokens, string resources, Orbit MVI)
 
 ---
 

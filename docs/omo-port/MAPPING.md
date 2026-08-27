@@ -8,7 +8,7 @@ deliberately rejected*, so the port does not quietly grow into a runtime rewrite
 | :--- | :--- |
 | Upstream | `https://github.com/code-yeongyu/oh-my-openagent` |
 | Pinned reference | `b98042a30` (2026-08-27) |
-| Local checkout | `oh-my-openagent/` → **Windows junction** to `D:\Quest\oh-my-openagent`. Its `.git/info/exclude` entry was removed 2026-08-27, so it now shows as `?? oh-my-openagent/` in `git status` — **never commit it** (it carries its own `.git`, so a stray `git add .` would add a gitlink). ⚠️ MSYS `ln -s` does **not** create a link on this machine, it silently deep-copies the target (51 entries, including `.git`); `ln -s` with `MSYS=winsymlinks:nativestrict` fails with *Operation not permitted* without developer mode. Use `New-Item -ItemType Junction -Path .\oh-my-openagent -Target D:\Quest\oh-my-openagent`. Steps 1–6 no longer read it; **step 8 does** |
+| Local checkout | `oh-my-openagent/` → **Windows junction** to `D:\Quest\oh-my-openagent`. Its `.git/info/exclude` entry was removed 2026-08-27, so it now shows as `?? oh-my-openagent/` in `git status` — **never commit it** (it carries its own `.git`, so a stray `git add .` would add a gitlink). ⚠️ MSYS `ln -s` does **not** create a link on this machine, it silently deep-copies the target (51 entries, including `.git`); `ln -s` with `MSYS=winsymlinks:nativestrict` fails with *Operation not permitted* without developer mode. Use `New-Item -ItemType Junction -Path .\oh-my-openagent -Target D:\Quest\oh-my-openagent`. Steps 1–6 no longer read it; **steps 8 and 9 do**. ⚠️ MSYS `find` does **not** traverse the junction — it walks straight past and reports nothing, so a negative `find` result here means *"used the wrong tool"*, not *"absent"*. Enumerate it with PowerShell (`Get-ChildItem -Recurse`) |
 | Test corpus | `CodebaseCompose/` → symlink to `/d/Quest/CodebaseCompose` (`com.genesys`, 90 `*.kt`, `core/designsystem` present). Gitignored. Used to validate hook false-positive rates |
 | Upstream license | Sustainable Use License (internal business use OK; **no commercial redistribution**) |
 | Reference docs | `docs/code_yeongyu_oh_my_openagent/` (DeepWiki export), `docs/antigravity/` |
@@ -713,6 +713,28 @@ nothing is caught by the ledger-advance check, which is the same brake by a chea
    *Verified:* 36 fixtures, plus live — the agent was injected once, read the skill with
    `view_file`, opened with `ultrawork:`, classified the request **research**, and changed
    nothing.
+9. **Roster eval** — 🔧 *scaffolded 2026-08-27, unrun.* `.agents/evals/` — `evals.json`
+   (5 tasks, 34 assertions), `iteration-1/eval-{1..5}/{with,without}_skill/` with empty
+   `grading.json`/`timing.json` to fill, and `README.md` carrying the protocol. Shape lifted
+   from `oh-my-openagent/.agents/skills/work-with-pr-workspace/` as the Adapted row specifies;
+   the one deviation is that it sits at `.agents/evals/` rather than inside a skill, because the
+   subject is the roster and not one skill.
+   The five tasks are grounded in real `CodebaseCompose` files and cover steps 4–8: MVI feature
+   build (`worker-deep` + delegation packet), mechanical string fix (`worker-quick` tier
+   selection), legacy comment cleanup (`rule_gate` + minimality), a read-only investigation
+   (`explore` fan-out + Phase 0 classification, asserting **zero** writes), and an `ultrawork`
+   multi-goal run (intent gate + `loop.py` + `stop_verifier`).
+   **This cannot be scripted**, and the two findings that forbid it are already recorded above:
+   `--agent` is ignored in `--print` mode, and workspace agents are not discovered in sandboxed
+   non-interactive runs. So it is 10 interactive sessions, one fresh `conversationId` per arm —
+   the hooks key state on it, so a reused session contaminates the next arm. The corpus is a real
+   git checkout and must be reset between arms.
+   *Acceptance:* `benchmark.json` + `benchmark.md` at the iteration root, with a
+   non-discriminating-assertion section — upstream's own finding was that assertions passing in
+   both arms measure baseline model competence, not the harness.
+   **A null result is the point.** If `worker-deep` grades level with a plain session, that is the
+   evidence for deleting it — see the `DeepCoder` / `DeepInvestigator` note above, which it may
+   simply be reinventing.
 
 ## License note
 

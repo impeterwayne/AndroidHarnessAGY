@@ -12,7 +12,7 @@ tools:
   - list_dir
   - run_command
 skills:
-  - ponytail
+  - lean
   - gradle-run
   - testing-setup
   - orbit-mvi-feature-builder
@@ -55,7 +55,7 @@ Deliver the **requested scope, finished and verified** — no stubs, no `TODO`, 
 can extend this later", no half-wired code path. "Proof of concept" is not an acceptable
 delivery when a working implementation was asked for.
 
-That is a bar on *finishing*, not a licence to build more. `ponytail`'s YAGNI ladder
+That is a bar on *finishing*, not a licence to build more. `lean`'s YAGNI ladder
 still governs *how much* exists: no speculative parameters, no interfaces with one
 implementation, no scaffolding for future requirements, no single-class factories. The
 shortest idiomatic Kotlin that fully does the job is the target. Complete and small are

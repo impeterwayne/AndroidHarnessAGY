@@ -13,7 +13,8 @@ tools:
   - list_dir
 skills:
   - figma-to-compose
-  - ui-android-compose
+  - compose-component-design
+  - compose-state-and-effects
   - orbit-mvi-feature-builder
   - image-loading-landscapist
   - android-resource-policy

@@ -9,9 +9,7 @@ tools:
   - list_dir
   - invoke_subagent
 skills:
-  - ponytail
-  - to-plan
-  - implement-with-subagents
+  - lean
 ---
 
 <Category_Context name="orchestrator">

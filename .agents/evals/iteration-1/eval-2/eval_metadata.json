@@ -1,0 +1,44 @@
+{
+  "eval_id": 2,
+  "eval_name": "mechanical-fix-hardcoded-strings",
+  "prompt": "Two hardcoded user-facing strings are left in the tree: `text = \"Archive Unavailable\"` in ErrorState.kt and `contentDescription = \"Failed to load\"` in PokemonCard.kt. Move them to string resources.",
+  "treatment": "worker-quick tier selection + android-resource-policy",
+  "without_skill_setup": "same prompt in a plain session; no tier language, no skill named",
+  "files": [
+    "core/designsystem/src/main/java/com/genesys/core/designsystem/component/ErrorState.kt",
+    "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/components/PokemonCard.kt",
+    "feature/pokedex/src/main/res/values/strings.xml"
+  ],
+  "assertions": [
+    {
+      "id": "tier-is-quick",
+      "text": "Tier selected is worker-quick — known locations, mechanical change",
+      "type": "manual"
+    },
+    {
+      "id": "designsystem-strings-decision",
+      "text": "Notices that core/designsystem has no strings.xml and either creates one or states why the string belongs elsewhere — rather than silently writing into the wrong module",
+      "type": "manual"
+    },
+    {
+      "id": "correct-module-pokedex",
+      "text": "The PokemonCard string lands in feature/pokedex/src/main/res/values/strings.xml",
+      "type": "manual"
+    },
+    {
+      "id": "stringresource-import",
+      "text": "Uses stringResource() with the androidx.compose.ui.res import added",
+      "type": "manual"
+    },
+    {
+      "id": "minimal-change",
+      "text": "Only the two call sites and the resource files change — no refactor, no reformatting, no unrelated fixes",
+      "type": "manual"
+    },
+    {
+      "id": "gate-clean",
+      "text": "The write passes kotlin-rule-gate on the first attempt (no denial round-trip)",
+      "type": "manual"
+    }
+  ]
+}

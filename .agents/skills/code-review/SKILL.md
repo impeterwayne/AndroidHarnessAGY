@@ -19,7 +19,7 @@ you have not read.
 
 Reviewing does not authorize changing. Findings first; edits only if the user asks for them.
 
-Pairs with the [`ponytail-review`](../ponytail-review/SKILL.md),
+Pairs with the [`lean-review`](../lean-review/SKILL.md),
 [`android-resource-policy`](../android-resource-policy/SKILL.md) and
 [`android-intent-security`](../android-intent-security/SKILL.md) skills — load whichever the
 diff actually touches.

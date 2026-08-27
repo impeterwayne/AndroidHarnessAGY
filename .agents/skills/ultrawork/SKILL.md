@@ -18,7 +18,7 @@ Open your reply with `ultrawork:` and one line naming what you are about to do. 
 the activation receipt — without it, nobody can tell this mode engaged.
 
 This mode changes **how carefully** you work. It does not change **how much** you build:
-[`ponytail`](../ponytail/SKILL.md) remains the sole authority on that, and its YAGNI ladder
+[`lean`](../lean/SKILL.md) remains the sole authority on that, and its YAGNI ladder
 still governs every line. Rigour and minimalism are not in tension — the failure being
 prevented here is confident wrongness, not small code.
 

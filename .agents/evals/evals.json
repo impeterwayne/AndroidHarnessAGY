@@ -1,0 +1,118 @@
+{
+  "subject": "omo-port roster (steps 5-8)",
+  "corpus": "CodebaseCompose",
+  "corpus_note": "com.genesys, 90 *.kt, Orbit MVI + Hilt + multi-module. Gitignored symlink; see MAPPING.md.",
+  "harness_source": "oh-my-openagent/.agents/skills/work-with-pr-workspace (iteration-1 shape, lifted 2026-08-27)",
+  "evals": [
+    {
+      "id": 1,
+      "name": "happy-path-feature-mvi",
+      "treatment": "delegate implementation to worker-deep with orbit-mvi-feature-builder",
+      "without_skill_setup": "same prompt in a plain session; do not dispatch a worker, do not name a skill",
+      "prompt": "feature2 is still an empty Box. Build it out as a real screen following the same MVI pattern the pokedex list uses — contract, viewmodel, screen — showing a static list of three items with a title. Wire it into the existing Feature2Graph.",
+      "expected_output": "Contract/ViewModel/Screen written by a dispatched worker, matching the pokedex pattern; strings in feature2 strings.xml; colors from AppColorScheme; build evidence recorded",
+      "files": [
+        "feature/feature2/src/main/java/com/genesys/feature/feature2/presentation/Feature2Screen.kt",
+        "feature/feature2/src/main/java/com/genesys/feature/feature2/navigation/Feature2Graph.kt",
+        "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexContract.kt",
+        "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexViewModel.kt",
+        "core/common/src/main/java/com/genesys/core/common/base/BaseViewModel.kt"
+      ],
+      "assertions": [
+        {"id": "delegated-not-self", "text": "The implementation was written inside an invoke_subagent call, not by the session that received the prompt"},
+        {"id": "tier-is-deep", "text": "Tier selected is worker-deep (multi-file, needs a build), not worker-quick"},
+        {"id": "contract-shape", "text": "Contract declares UiState / sealed interface Action / sealed interface SideEffect against com.genesys.core.common.base.mvi, matching PokedexContract.kt"},
+        {"id": "basevm-container", "text": "ViewModel extends BaseViewModel<State, SideEffect, Action> and declares `override val container = container<...>(...)`"},
+        {"id": "no-comments", "text": "No `//` or `/* */` comments in any written Kotlin (KDoc permitted)"},
+        {"id": "strings-resourced", "text": "User-facing text uses stringResource(); new entries added to feature/feature2/src/main/res/values/strings.xml"},
+        {"id": "tokens-not-hex", "text": "Colors come from AppColorScheme / theme tokens, not raw hex literals"},
+        {"id": "delegation-packet", "text": "The dispatch prompt carries the six sections (TASK / EXPECTED OUTCOME / MUST DO / MUST NOT DO / CONTEXT / SKILLS)"},
+        {"id": "build-evidence", "text": "A real build or test invocation is reported with its output, not a claim that it 'should pass'"},
+        {"id": "verified-by-reading", "text": "The dispatching session re-read the written files before accepting the worker's report"}
+      ]
+    },
+    {
+      "id": 2,
+      "name": "mechanical-fix-hardcoded-strings",
+      "treatment": "worker-quick tier selection + android-resource-policy",
+      "without_skill_setup": "same prompt in a plain session; no tier language, no skill named",
+      "prompt": "Two hardcoded user-facing strings are left in the tree: `text = \"Archive Unavailable\"` in ErrorState.kt and `contentDescription = \"Failed to load\"` in PokemonCard.kt. Move them to string resources.",
+      "expected_output": "Both strings resourced; the designsystem module (which has no strings.xml today) handled deliberately; nothing else touched",
+      "files": [
+        "core/designsystem/src/main/java/com/genesys/core/designsystem/component/ErrorState.kt",
+        "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/components/PokemonCard.kt",
+        "feature/pokedex/src/main/res/values/strings.xml"
+      ],
+      "assertions": [
+        {"id": "tier-is-quick", "text": "Tier selected is worker-quick — known locations, mechanical change"},
+        {"id": "designsystem-strings-decision", "text": "Notices that core/designsystem has no strings.xml and either creates one or states why the string belongs elsewhere — rather than silently writing into the wrong module"},
+        {"id": "correct-module-pokedex", "text": "The PokemonCard string lands in feature/pokedex/src/main/res/values/strings.xml"},
+        {"id": "stringresource-import", "text": "Uses stringResource() with the androidx.compose.ui.res import added"},
+        {"id": "minimal-change", "text": "Only the two call sites and the resource files change — no refactor, no reformatting, no unrelated fixes"},
+        {"id": "gate-clean", "text": "The write passes kotlin-rule-gate on the first attempt (no denial round-trip)"}
+      ]
+    },
+    {
+      "id": 3,
+      "name": "legacy-comment-cleanup-minimality",
+      "treatment": "lean + rule_gate awareness",
+      "without_skill_setup": "same prompt in a plain session with kotlin-rule-gate disabled in hooks.json",
+      "prompt": "PokemonDetailContent.kt is full of `//` comments that just restate the code. Clean it up to match our rules.",
+      "expected_output": "Comments removed; code otherwise byte-identical in behavior; no opportunistic refactoring",
+      "files": [
+        "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/detail/components/PokemonDetailContent.kt"
+      ],
+      "assertions": [
+        {"id": "comments-removed", "text": "All 10 `//` comments removed from PokemonDetailContent.kt"},
+        {"id": "not-converted-to-kdoc", "text": "Comments are deleted, not laundered into KDoc to slip past the gate"},
+        {"id": "behavior-unchanged", "text": "No logic, ordering, or composable structure changed — diff is deletions plus whitespace only"},
+        {"id": "scope-held", "text": "Does not also clean the other 10 violating files unless asked"},
+        {"id": "no-new-violations", "text": "rule_gate --scan reports zero violations in the file afterwards"}
+      ]
+    },
+    {
+      "id": 4,
+      "name": "investigation-no-edits",
+      "treatment": "explore fan-out + Phase 0 intent classification",
+      "without_skill_setup": "same prompt in a plain session; no explore dispatch",
+      "prompt": "how does the pokedex list actually get its data? walk me through it",
+      "expected_output": "A synthesized trace of the real data path, with zero file modifications",
+      "files": [
+        "core/network/src/main/java/com/genesys/core/network/service/ApiService.kt",
+        "core/data/src/main/java/com/genesys/core/data/repository/pokedex/PokedexRepositoryImpl.kt",
+        "core/domain/src/main/java/com/genesys/core/domain/usecase/pokedex/GetAllPokedexUseCase.kt",
+        "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexViewModel.kt",
+        "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexScreen.kt"
+      ],
+      "assertions": [
+        {"id": "zero-writes", "text": "No write_to_file / replace_file_content call occurs anywhere in the session or its subagents"},
+        {"id": "classified-investigation", "text": "Treated as investigation, not implementation — no plan to change anything is offered unprompted"},
+        {"id": "explore-dispatched", "text": "At least one explore subagent is dispatched rather than the session grepping the whole chain itself"},
+        {"id": "parallel-fanout", "text": "Two or more explore spawns issued in a single invoke_subagent call for the disjoint layers"},
+        {"id": "full-chain", "text": "The answer names the real chain: ApiService → PokedexRepositoryImpl → GetAllPokedexUseCase → PokedexViewModel (Orbit intent) → PokedexScreen"},
+        {"id": "names-orbit", "text": "Identifies Orbit MVI container/intent as the state mechanism, not a generic 'the viewmodel exposes a StateFlow'"}
+      ]
+    },
+    {
+      "id": 5,
+      "name": "ultrawork-multi-goal-loop",
+      "treatment": "ultrawork skill via intent_gate + loop.py goals + stop_verifier",
+      "without_skill_setup": "same prompt with the trigger word removed and ultrawork-intent-gate + stop-verifier disabled",
+      "prompt": "ultrawork: feature3 needs the same treatment feature2 got — a real MVI screen — and while you're in there the two `//` comments in PokedexScreen.kt should go. Both done, both verified.",
+      "expected_output": "Goals registered in loop.py with falsifiable pass conditions; both items completed with recorded evidence; loop closes cleanly",
+      "files": [
+        "feature/feature3/src/main/java/com/genesys/feature/feature3/main/Feature3Screen.kt",
+        "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexScreen.kt"
+      ],
+      "assertions": [
+        {"id": "gate-fired-once", "text": "intent_gate injected the ultrawork directive exactly once for the triggering prompt"},
+        {"id": "goals-registered", "text": "loop.py create-goals ran and was accepted — two goals, each with stop_when and expected_evidence"},
+        {"id": "falsifiable-criteria", "text": "Pass conditions are checkable facts, not activities ('rule_gate --scan reports 0 violations', not 'clean up the comments')"},
+        {"id": "ledger-advances", "text": "ledger.jsonl gains a checkpoint entry per goal; goals.json does not drift (reconstruct --check passes)"},
+        {"id": "completeness-not-maximalism", "text": "Both requested items fully delivered — no stubs, no TODOs — and nothing beyond them invented"},
+        {"id": "resume-bounded", "text": "stop_verifier resumes at most twice per goal; the session ends on a permit, not on the runtime's own cap"},
+        {"id": "no-unasked-commit", "text": "Nothing is committed — ultrawork dropped OMO's mandatory-commit discipline"}
+      ]
+    }
+  ]
+}

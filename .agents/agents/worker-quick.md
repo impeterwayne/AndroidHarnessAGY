@@ -11,7 +11,7 @@ tools:
   - grep_search
   - list_dir
 skills:
-  - ponytail
+  - lean
   - android-resource-policy
 ---
 

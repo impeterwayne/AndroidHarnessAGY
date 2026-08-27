@@ -1,0 +1,36 @@
+{
+  "run_id": "eval-4-without_skill",
+  "conversation_id": null,
+  "expectations": [
+    {
+      "text": "No write_to_file / replace_file_content call occurs anywhere in the session or its subagents",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Treated as investigation, not implementation — no plan to change anything is offered unprompted",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "At least one explore subagent is dispatched rather than the session grepping the whole chain itself",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Two or more explore spawns issued in a single invoke_subagent call for the disjoint layers",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "The answer names the real chain: ApiService → PokedexRepositoryImpl → GetAllPokedexUseCase → PokedexViewModel (Orbit intent) → PokedexScreen",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Identifies Orbit MVI container/intent as the state mechanism, not a generic 'the viewmodel exposes a StateFlow'",
+      "passed": null,
+      "evidence": ""
+    }
+  ]
+}

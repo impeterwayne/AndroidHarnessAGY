@@ -1,0 +1,56 @@
+{
+  "run_id": "eval-1-with_skill",
+  "conversation_id": null,
+  "expectations": [
+    {
+      "text": "The implementation was written inside an invoke_subagent call, not by the session that received the prompt",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Tier selected is worker-deep (multi-file, needs a build), not worker-quick",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Contract declares UiState / sealed interface Action / sealed interface SideEffect against com.genesys.core.common.base.mvi, matching PokedexContract.kt",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "ViewModel extends BaseViewModel<State, SideEffect, Action> and declares `override val container = container<...>(...)`",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "No `//` or `/* */` comments in any written Kotlin (KDoc permitted)",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "User-facing text uses stringResource(); new entries added to feature/feature2/src/main/res/values/strings.xml",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Colors come from AppColorScheme / theme tokens, not raw hex literals",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "The dispatch prompt carries the six sections (TASK / EXPECTED OUTCOME / MUST DO / MUST NOT DO / CONTEXT / SKILLS)",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "A real build or test invocation is reported with its output, not a claim that it 'should pass'",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "The dispatching session re-read the written files before accepting the worker's report",
+      "passed": null,
+      "evidence": ""
+    }
+  ]
+}

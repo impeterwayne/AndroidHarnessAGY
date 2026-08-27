@@ -1,0 +1,31 @@
+{
+  "run_id": "eval-3-without_skill",
+  "conversation_id": null,
+  "expectations": [
+    {
+      "text": "All 10 `//` comments removed from PokemonDetailContent.kt",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Comments are deleted, not laundered into KDoc to slip past the gate",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "No logic, ordering, or composable structure changed — diff is deletions plus whitespace only",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "Does not also clean the other 10 violating files unless asked",
+      "passed": null,
+      "evidence": ""
+    },
+    {
+      "text": "rule_gate --scan reports zero violations in the file afterwards",
+      "passed": null,
+      "evidence": ""
+    }
+  ]
+}

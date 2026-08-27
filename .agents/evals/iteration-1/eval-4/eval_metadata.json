@@ -1,0 +1,46 @@
+{
+  "eval_id": 4,
+  "eval_name": "investigation-no-edits",
+  "prompt": "how does the pokedex list actually get its data? walk me through it",
+  "treatment": "explore fan-out + Phase 0 intent classification",
+  "without_skill_setup": "same prompt in a plain session; no explore dispatch",
+  "files": [
+    "core/network/src/main/java/com/genesys/core/network/service/ApiService.kt",
+    "core/data/src/main/java/com/genesys/core/data/repository/pokedex/PokedexRepositoryImpl.kt",
+    "core/domain/src/main/java/com/genesys/core/domain/usecase/pokedex/GetAllPokedexUseCase.kt",
+    "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexViewModel.kt",
+    "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/PokedexScreen.kt"
+  ],
+  "assertions": [
+    {
+      "id": "zero-writes",
+      "text": "No write_to_file / replace_file_content call occurs anywhere in the session or its subagents",
+      "type": "manual"
+    },
+    {
+      "id": "classified-investigation",
+      "text": "Treated as investigation, not implementation — no plan to change anything is offered unprompted",
+      "type": "manual"
+    },
+    {
+      "id": "explore-dispatched",
+      "text": "At least one explore subagent is dispatched rather than the session grepping the whole chain itself",
+      "type": "manual"
+    },
+    {
+      "id": "parallel-fanout",
+      "text": "Two or more explore spawns issued in a single invoke_subagent call for the disjoint layers",
+      "type": "manual"
+    },
+    {
+      "id": "full-chain",
+      "text": "The answer names the real chain: ApiService → PokedexRepositoryImpl → GetAllPokedexUseCase → PokedexViewModel (Orbit intent) → PokedexScreen",
+      "type": "manual"
+    },
+    {
+      "id": "names-orbit",
+      "text": "Identifies Orbit MVI container/intent as the state mechanism, not a generic 'the viewmodel exposes a StateFlow'",
+      "type": "manual"
+    }
+  ]
+}

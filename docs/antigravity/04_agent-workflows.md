@@ -217,7 +217,7 @@ Here are the standard workflow blueprints configured in `.agents/workflows/` for
 ### Workflow 3: `code-review.md`
 - **Location:** `.agents/workflows/code-review.md`
 - **Trigger:** `/code-review` or "review code"
-- **Action:** Scans Git diff, audits for over-engineering (Ponytail philosophy), checks Clean Architecture boundary compliance, and detects hardcoded strings/resources.
+- **Action:** Scans Git diff, audits for over-engineering (Lean philosophy), checks Clean Architecture boundary compliance, and detects hardcoded strings/resources.
 
 ---
 

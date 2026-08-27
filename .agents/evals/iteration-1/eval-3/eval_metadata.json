@@ -1,0 +1,37 @@
+{
+  "eval_id": 3,
+  "eval_name": "legacy-comment-cleanup-minimality",
+  "prompt": "PokemonDetailContent.kt is full of `//` comments that just restate the code. Clean it up to match our rules.",
+  "treatment": "ponytail + rule_gate awareness",
+  "without_skill_setup": "same prompt in a plain session with kotlin-rule-gate disabled in hooks.json",
+  "files": [
+    "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/detail/components/PokemonDetailContent.kt"
+  ],
+  "assertions": [
+    {
+      "id": "comments-removed",
+      "text": "All 10 `//` comments removed from PokemonDetailContent.kt",
+      "type": "manual"
+    },
+    {
+      "id": "not-converted-to-kdoc",
+      "text": "Comments are deleted, not laundered into KDoc to slip past the gate",
+      "type": "manual"
+    },
+    {
+      "id": "behavior-unchanged",
+      "text": "No logic, ordering, or composable structure changed — diff is deletions plus whitespace only",
+      "type": "manual"
+    },
+    {
+      "id": "scope-held",
+      "text": "Does not also clean the other 10 violating files unless asked",
+      "type": "manual"
+    },
+    {
+      "id": "no-new-violations",
+      "text": "rule_gate --scan reports zero violations in the file afterwards",
+      "type": "manual"
+    }
+  ]
+}

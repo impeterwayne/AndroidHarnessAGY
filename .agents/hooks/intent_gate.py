@@ -94,7 +94,7 @@ you are about to do.
 4. Delegate: `explore` for discovery (2-3 in one invoke_subagent call), `oracle` for
    judgement, `worker-quick` / `worker-deep` for edits. Verify what they return.
 5. Prove the result with a command and its exit code. Completeness, not maximalism — being
-   asked for rigour is not permission to widen the scope, and ponytail still governs how much
+   asked for rigour is not permission to widen the scope, and lean still governs how much
    code exists.
 
 Do not repeat this notice back to the user.
