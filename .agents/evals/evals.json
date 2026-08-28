@@ -7,8 +7,8 @@
     {
       "id": 1,
       "name": "happy-path-feature-mvi",
-      "treatment": "delegate implementation to worker-deep with orbit-mvi-feature-builder",
-      "without_skill_setup": "same prompt in a plain session; do not dispatch a worker, do not name a skill",
+      "treatment": "delegate implementation to executor with orbit-mvi-feature-builder",
+      "without_skill_setup": "same prompt in a plain session; do not dispatch a subagent, do not name a skill",
       "prompt": "feature2 is still an empty Box. Build it out as a real screen following the same MVI pattern the pokedex list uses — contract, viewmodel, screen — showing a static list of three items with a title. Wire it into the existing Feature2Graph.",
       "expected_output": "Contract/ViewModel/Screen written by a dispatched worker, matching the pokedex pattern; strings in feature2 strings.xml; colors from AppColorScheme; build evidence recorded",
       "files": [
@@ -20,7 +20,7 @@
       ],
       "assertions": [
         {"id": "delegated-not-self", "text": "The implementation was written inside an invoke_subagent call, not by the session that received the prompt"},
-        {"id": "tier-is-deep", "text": "Tier selected is worker-deep (multi-file, needs a build), not worker-quick"},
+        {"id": "explored-the-pattern", "text": "The executor read the pokedex contract and viewmodel before writing — exploration sized up to a multi-file goal"},
         {"id": "contract-shape", "text": "Contract declares UiState / sealed interface Action / sealed interface SideEffect against com.genesys.core.common.base.mvi, matching PokedexContract.kt"},
         {"id": "basevm-container", "text": "ViewModel extends BaseViewModel<State, SideEffect, Action> and declares `override val container = container<...>(...)`"},
         {"id": "no-comments", "text": "No `//` or `/* */` comments in any written Kotlin (KDoc permitted)"},
@@ -28,14 +28,14 @@
         {"id": "tokens-not-hex", "text": "Colors come from AppColorScheme / theme tokens, not raw hex literals"},
         {"id": "delegation-packet", "text": "The dispatch prompt carries the six sections (TASK / EXPECTED OUTCOME / MUST DO / MUST NOT DO / CONTEXT / SKILLS)"},
         {"id": "build-evidence", "text": "A real build or test invocation is reported with its output, not a claim that it 'should pass'"},
-        {"id": "verified-by-reading", "text": "The dispatching session re-read the written files before accepting the worker's report"}
+        {"id": "verified-by-reading", "text": "The dispatching session re-read the written files before accepting the executor's report"}
       ]
     },
     {
       "id": 2,
       "name": "mechanical-fix-hardcoded-strings",
-      "treatment": "worker-quick tier selection + android-resource-policy",
-      "without_skill_setup": "same prompt in a plain session; no tier language, no skill named",
+      "treatment": "executor scope discipline + android-resource-policy",
+      "without_skill_setup": "same prompt in a plain session; no roster language, no skill named",
       "prompt": "Two hardcoded user-facing strings are left in the tree: `text = \"Archive Unavailable\"` in ErrorState.kt and `contentDescription = \"Failed to load\"` in PokemonCard.kt. Move them to string resources.",
       "expected_output": "Both strings resourced; the designsystem module (which has no strings.xml today) handled deliberately; nothing else touched",
       "files": [
@@ -44,7 +44,7 @@
         "feature/pokedex/src/main/res/values/strings.xml"
       ],
       "assertions": [
-        {"id": "tier-is-quick", "text": "Tier selected is worker-quick — known locations, mechanical change"},
+        {"id": "scope-held", "text": "The executor edited only the two named files with no discovery sweep — exploration sized down to a mechanical goal"},
         {"id": "designsystem-strings-decision", "text": "Notices that core/designsystem has no strings.xml and either creates one or states why the string belongs elsewhere — rather than silently writing into the wrong module"},
         {"id": "correct-module-pokedex", "text": "The PokemonCard string lands in feature/pokedex/src/main/res/values/strings.xml"},
         {"id": "stringresource-import", "text": "Uses stringResource() with the androidx.compose.ui.res import added"},

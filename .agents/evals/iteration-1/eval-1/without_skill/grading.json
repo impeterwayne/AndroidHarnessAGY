@@ -8,7 +8,7 @@
       "evidence": ""
     },
     {
-      "text": "Tier selected is worker-deep (multi-file, needs a build), not worker-quick",
+      "text": "The executor read the pokedex contract and viewmodel before writing — exploration sized up to a multi-file goal",
       "passed": null,
       "evidence": ""
     },
@@ -48,7 +48,7 @@
       "evidence": ""
     },
     {
-      "text": "The dispatching session re-read the written files before accepting the worker's report",
+      "text": "The dispatching session re-read the written files before accepting the executor's report",
       "passed": null,
       "evidence": ""
     }

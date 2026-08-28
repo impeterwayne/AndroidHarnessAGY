@@ -83,10 +83,11 @@ inventing findings to look thorough is the failure mode here.
 If the user asks for the findings to be applied:
 
 - One-file mechanical fixes (extract a string, swap a hex for a token, delete a comment) →
-  batch them into parallel `worker-quick` calls, one file each.
+  batch them into parallel `executor` calls, one file each, each prompt naming the file and
+  the single edit so none of them goes exploring.
 - Anything structural (removing an abstraction, redirecting a dependency, changing a contract)
-  → one `worker-deep` call per coherent change, with the module's compile and test commands
+  → one `executor` call per coherent change, with the module's compile and test commands
   named as the required evidence.
 
-Then verify: re-read each changed file, and check the evidence the worker reported. A
+Then verify: re-read each changed file, and check the evidence the executor reported. A
 subagent's summary of what it did is not evidence that it did it.

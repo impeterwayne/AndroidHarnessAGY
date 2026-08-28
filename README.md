@@ -32,7 +32,7 @@
 - **Automated PreToolUse & PreInvocation Safety Gates**: Python hooks block comment clutter, catch hardcoded UI strings, prevent raw hex colors, and activate rigour modes autonomously.
 - **Resilient Goal Loop Engine (`loop.py`)**: Structured, append-only ledger for multi-goal workflows that survives LLM context compaction and enforces verified exit criteria.
 - **Lean Engineering Mindset**: Enforces YAGNI (You Aren't Gonna Need It), Kotlin stdlib/KTX reuse, Compose native primitives, and zero speculative scaffolding.
-- **Single-Command Drop-in Packaging (`oma`)**: Painlessly inject, sync, or remove the entire harness across multiple Android projects without touching project root files.
+- **Single-Command Drop-in Packaging (`oma`)**: Painlessly inject, sync, or remove the entire harness across multiple Android projects. Everything lands in `.agents/`; the only root file is `AGENTS.md`, spliced in as a marked block so an existing one keeps its content.
 
 ---
 
@@ -70,6 +70,13 @@ oma init /path/to/MyAndroidApp
 
 This injects `.agents/` into your target repository and creates an `.oma.json` manifest to track versions, digests, and local edits.
 
+It also writes the delegation rule to `AGENTS.md` at the project root, between
+`<!-- oma:orchestrate:start -->` / `<!-- oma:orchestrate:end -->` markers. That rule lives at
+the root rather than in `.agents/rules/` because `AGENTS.md` is read reliably on every turn
+while rule files are not. If your project already has an `AGENTS.md`, the block is appended
+and your content is left alone; `oma update` refreshes only the block, and `oma remove` takes
+only the block back out. Skip it entirely with `--no-agents-md`.
+
 ### 3. Installation Profiles
 
 Tailor the harness payload to your project's needs using `--profile`:
@@ -92,12 +99,12 @@ oma init . --profile minimal
 
 | Command | Description |
 | :--- | :--- |
-| `oma init <target>` | Installs `.agents/` into `<target>`. Safely merges existing `hooks.json` and `mcp_config.json`. |
+| `oma init <target>` | Installs `.agents/` plus the `AGENTS.md` block into `<target>`. Safely merges an existing `AGENTS.md`, `hooks.json`, and `mcp_config.json`. |
 | `oma update <target>` | Updates harness files while strictly preserving any local edits you made. |
 | `oma update <target> --prune` | Updates and removes files no longer included in the active profile. |
 | `oma status <target>` | Inspects the target: shows installed version, upstream commits, and drifted files. |
 | `oma list` | Lists all available rules, skills, agents, hooks, and profiles. |
-| `oma remove <target>` | Safely deletes the installed `.agents/` directory (protects uncommitted local changes). |
+| `oma remove <target>` | Safely deletes the installed `.agents/` directory and un-splices the `AGENTS.md` block (protects uncommitted local changes). |
 
 #### Granular Component Selection
 ```bash
@@ -146,7 +153,7 @@ flowchart TD
 - **`scrcpy-daemon` (`scrcpy_daemon.py` - `PreInvocation` / `Stop`)**:
   - Automatically manages the `scrcpy-cli` daemon lifecycle with reference counting across sessions.
 - **`root-write-guard` (`write_guard.py` - `PreToolUse`, enabled)**:
-  - Enforcement half of `rules/orchestrate.md`. Denies source-file writes (`.kt .kts .java .xml .gradle .py .sh .ps1 .json .toml .properties`) from the root session, so code changes must go through `worker-quick` / `worker-deep`. Docs, notes and plans are never gated.
+  - Enforcement half of the delegation rule in `AGENTS.md`. Denies source-file writes (`.kt .kts .java .xml .gradle .py .sh .ps1 .json .toml .properties`) from the root session, so code changes must go through `executor`. Docs, notes and plans are never gated.
   - Lift it for one session without editing config: `python .agents/hooks/write_guard.py --off` (`--on`, `--status`).
 
 ---
@@ -158,8 +165,8 @@ flowchart TD
 | **`orchestrator`** | Strategic Lead | Decomposes complex requests, creates goal ledgers, coordinates workers, dispatches reviews. |
 | **`explore`** | Code Indexer & Finder | Fast, read-only search using ripgrep, file viewing, and architecture indexing. |
 | **`oracle`** | Architectural Judge | Consultative deep-thinker for reviewing architecture, edge cases, and design compliance. |
-| **`worker-quick`** | Fast Implementer | Targeted single-file fixes, small refactors, and minor feature updates. |
-| **`worker-deep`** | Senior Implementer | Heavy multi-module development, complex state machines, and end-to-end migrations. |
+| **`executor`** | Implementer | Every code change: single-file fixes through multi-module features, refactors and migrations. Holds the shell, so it compiles and tests what it writes. |
+| **`verifier`** | Build & Device Gate | Read-only on the repo. Runs the one aggregate Gradle build over a converged change set — per-module compiles do not prove `:app` links — then, for UI work, `installDebug` and drives the real screen via `scrcpy-cli` for launch, screenshots, and a named scenario. Holds Gradle exclusively, so a fan-out ends with it rather than with N concurrent builds in one worktree. |
 | **`figma-analyzer`** | Design Specifier | Analyzes layout hierarchy, padding, typography, colors, and prototype reactions. |
 | **`figma-asset-extractor`** | Asset Pipeline | Converts Figma SVGs to Android VectorDrawables (`ic_*.xml`) and exports raster assets. |
 | **`figma-compose-developer`** | UI Developer | Implements stateless Compose screens and previews matching Figma nodes. |
@@ -208,16 +215,17 @@ flowchart TD
 
 ### 4. Architectural Rules and Guardrails
 
-The harness automatically injects continuous rules located in `.agents/rules/`:
+The delegation rule sits in **`AGENTS.md`** at the project root; the domain rules are injected from `.agents/rules/`:
 
-1. **`orchestrate.md`**:
+0. **`AGENTS.md`** *(project root, not `.agents/rules/`)*:
    - The session the human talks to plans and delegates; it does not edit source files.
    - Classify every message first (understanding / investigation / evaluation / implementation) — only an explicit implementation verb authorises a dispatch.
-   - Roster and tier selection: `explore` for discovery, `oracle` for judgement, `worker-quick` / `worker-deep` for edits.
+   - Roster and routing: `explore` for discovery, `oracle` for judgement, `executor` for every code change, `verifier` for the aggregate build after a fan-out.
    - Every dispatch carries the six sections (TASK / EXPECTED OUTCOME / MUST DO / MUST NOT DO / CONTEXT / SKILLS); every result is verified with `view_file`.
    - This re-homes `agents/orchestrator.md`, whose `mainAgent: true` does not load via `agy --agent <name>` in CLI 1.1.22 (see `docs/omo-port/MAPPING.md`). The agent file still binds on the **subagent** path.
+   - **Why the root, not a rule file:** `.agents/rules/*.md` proved unreliable at actually reaching the turn, and this is the one rule whose failure is silent — the session just quietly starts editing code itself. `AGENTS.md` is read on every turn. It ships as a marked block, so a project's own `AGENTS.md` survives injection intact.
 
-2. **`android.md`**:
+1. **`android.md`**:
    - Maintain Clean Architecture and Orbit MVI patterns.
    - Keep Composable screens purely stateless (`UiState` + callbacks).
    - Use `AppTheme` design system tokens (`colorScheme`, `typography`, `spacing`, `shapes`).
@@ -226,11 +234,11 @@ The harness automatically injects continuous rules located in `.agents/rules/`:
    - Never hardcode strings — always use `strings.xml`.
    - No unnecessary inline comments in Kotlin code.
 
-3. **`figma.md`**:
+2. **`figma.md`**:
    - Triggers automatically when a Figma URL (`https://www.figma.com/design/...`) or node ID is detected.
    - Mandates extraction of tokens, Auto-Layout parameters, typography, and vector icons before writing code.
 
-4. **`lean.md`**:
+3. **`lean.md`**:
    - Follows the Decision Ladder: YAGNI -> Reuse First -> Kotlin Stdlib/KTX -> Native Compose -> Shortest Idiomatic Form.
    - Rejects single-impl interfaces and speculative factory boilerplate.
 

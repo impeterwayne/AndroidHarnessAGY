@@ -73,8 +73,7 @@ on file contents you could have had summarised.
 | :--- | :--- |
 | Where is X, which files touch Y | `explore` — fan out 2–3 in **one** `invoke_subagent` call |
 | Architecture trade-off, review of finished work, a bug that survived two fix attempts | `oracle` (read-only, no shell) |
-| One mechanical single-file edit | `worker-quick` (no shell) |
-| A feature, a refactor, anything needing a build to prove it | `worker-deep` |
+| Any code change — one line, a feature, a refactor, anything needing a build to prove it | `executor` (holds the shell) |
 
 ```
 invoke_subagent(Subagents=[

@@ -3,7 +3,7 @@
   "conversation_id": null,
   "expectations": [
     {
-      "text": "Tier selected is worker-quick — known locations, mechanical change",
+      "text": "The executor edited only the two named files with no discovery sweep — exploration sized down to a mechanical goal",
       "passed": null,
       "evidence": ""
     },

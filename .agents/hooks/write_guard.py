@@ -231,11 +231,11 @@ def hook_mode() -> None:
                 "decision": "deny",
                 "reason": (
                     f"This session delegates code changes; it does not make them. "
-                    f"{Path(path).name} must be written by a worker subagent.\n"
-                    "  invoke_subagent(TypeName='worker-quick')  one file, mechanical\n"
-                    "  invoke_subagent(TypeName='worker-deep')   multi-file, or needs a build\n"
-                    "Give the worker the goal, the constraints, and the file paths; then "
-                    "verify its result with view_file.\n"
+                    f"{Path(path).name} must be written by a subagent.\n"
+                    "  invoke_subagent(TypeName='executor')  every code change, one line "
+                    "or one feature\n"
+                    "Give it the goal, the constraints, and the file paths; then verify "
+                    "its result with view_file.\n"
                     "To lift this for the session: run "
                     "`python .agents/hooks/write_guard.py --off`."
                 ),
@@ -370,7 +370,7 @@ def self_test() -> int:
             "toolCall": {"name": "write_to_file", "args": {"TargetFile": "feature/A.kt"}},
         })
         check("root writing Kotlin is denied", deny.get("decision") == "deny")
-        check("denial names the workers", "worker-quick" in (deny.get("reason") or ""))
+        check("denial names the executor", "executor" in (deny.get("reason") or ""))
 
         allow_child = run_hook({
             "conversationId": child,

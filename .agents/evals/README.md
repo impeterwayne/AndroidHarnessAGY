@@ -65,8 +65,8 @@ one-line `evidence` quote, same as upstream. Do not grade from memory of the ses
 grade from the artifacts, or the arm is worthless as a record.
 
 Two assertion classes need the transcript rather than the diff:
-`delegated-not-self`, `explore-dispatched`, `parallel-fanout`, `tier-is-*` and
-`gate-fired-once` are all claims about *tool calls*, so check them against
+`delegated-not-self`, `explore-dispatched`, `parallel-fanout`, `explored-the-pattern`,
+`scope-held` and `gate-fired-once` are all claims about *tool calls*, so check them against
 `transcript_full.jsonl`, not the report the agent wrote about itself.
 
 ## Reading the result
@@ -76,7 +76,16 @@ assertions that pass in both arms measure baseline model competence, not the
 harness. Sort them out in `benchmark.md` under "Non-discriminating assertions"
 and drop them next iteration.
 
-A null result is a real result here. If `worker-deep` grades the same as the plain
+A null result is a real result here. If `executor` grades the same as the plain
 session, that is the evidence for deleting it — and `agy.exe` ships `DeepCoder` and
-`DeepInvestigator`, hidden but invocable, which `worker-deep` may simply be
+`DeepInvestigator`, hidden but invocable, which `executor` may simply be
 reinventing.
+
+Note what evals 1 and 2 now measure. They used to test *tier selection* — a routing
+decision that no longer exists, since `worker-quick` and `worker-deep` were merged into
+`executor` (`model:` accepts only `inherit`, so the two tiers ran the same model and the
+choice bought nothing). The replacement assertions, `explored-the-pattern` and
+`scope-held`, test whether `executor` sizes its own exploration from the goal: reading the
+pokedex pattern before a multi-file build, and touching only the two named files for a
+mechanical one. That is the behaviour the merge is betting on, so it is the behaviour to
+grade.

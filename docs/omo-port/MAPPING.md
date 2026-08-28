@@ -53,12 +53,12 @@ Port scope: **level B** (patterns re-expressed natively) + the asset subset of
 
 | OMO concept | What we build | What changes |
 | :--- | :--- | :--- |
-| **Categories** (`CategoryConfig`) | one worker agent file per tier: `worker-quick`, `worker-deep`, (+ existing `figma-compose-developer` for visual) | `prompt_append` → agent.md **body**; `callerGuidance` → `description:`; `model`/`variant`/`reasoningEffort` → `model:`. This is OMO's own `file://` prompt_append mode with the indirection removed. Trim 8 categories → 3–4 tiers: more tiers than we have real model choices is theatre |
+| **Categories** (`CategoryConfig`) | **one** implementation agent, `executor` (+ existing `figma-compose-developer` for visual) | `prompt_append` → agent.md **body**; `callerGuidance` → `description:`; `model`/`variant`/`reasoningEffort` → `model:`. This is OMO's own `file://` prompt_append mode with the indirection removed. Trimmed 8 categories → 2 tiers → **1**: see "Tiers collapsed to one executor" below — more tiers than we have real model choices is theatre, and Q4 established we have exactly one |
 | **Ralph loop** | `.agents/state/loop/<conversationId>/` (goals + append-only `ledger.jsonl`) + `.agents/scripts/loop.py` CLI + SKILL.md + 3 hooks | OMO's loop is not runtime magic: it is *state dir + CLI the agent calls + hooks that read the state*. All four pieces exist here. Ledger progress — not turn count — is the stuck-detector |
 | **Boulder brakes** | ✅ `.agents/hooks/stop_verifier.py` (re-derived, 52 fixtures, live-verified) | Hooks are stateless subprocesses, so cooldowns/counters live in our own state file keyed by `conversationId`. The algorithm was re-derived, not ported — see License. Two corrections to the shape assumed here: the hard-stop reasons are the real `TERMINATION_REASON_*` vocabulary (`max_steps_exceeded` does not exist), and compaction **tightens** the budget rather than suppressing, because surviving compaction is the loop's whole purpose |
 | **Ultrawork** | ✅ `.agents/skills/ultrawork/SKILL.md` + `intent_gate.py` on `PreInvocation` | A **skill**, not a workflow — workflows are deprecated (see below), and skills are what serve `/<name>`. Rewritten, not lifted: 325 lines → 130. Kept the completeness pressure, dropped the maximalism and OMO's mandatory-commit discipline (this repo never commits unasked). The useful substitution: OMO's "GOAL REGISTRATION" *and* its `mktemp` durable notepad both collapse into `loop.py`, which already enforces the goal bar and is already enforced by step 7 |
 | **Quality gate** | evidence artifacts the agent writes; hook *validates* rather than re-runs | Hooks block the agent loop synchronously — a `Stop` hook running Gradle costs 30–90s/turn against a 30s default timeout. Agent produces evidence → hook checks evidence |
-| Discipline agent roster (11) | 5: `orchestrator`, `explore`, `oracle`, `worker-quick`, `worker-deep` | Metis+Momus merge (two agents for one review job is OMO bloat); Atlas+Sisyphus-Junior merge; drop Artistry (needs a provider we don't have), Multimodal-Looker, Librarian initially |
+| Discipline agent roster (11) | 4: `orchestrator`, `explore`, `oracle`, `executor` | Metis+Momus merge (two agents for one review job is OMO bloat); Atlas+Sisyphus-Junior merge; drop Artistry (needs a provider we don't have), Multimodal-Looker, Librarian initially. Was 5 — `worker-quick`/`worker-deep` merged into `executor` 2026-08-28, see below |
 | Eval methodology | steal `with_skill`/`without_skill` + `grading.json` + `timing.json` from `.agents/skills/work-with-pr-workspace/` | Run 3–5 real tasks from our Android repo. Without this the personas are cargo cult |
 
 ### Rejected
@@ -75,6 +75,166 @@ Port scope: **level B** (patterns re-expressed natively) + the asset subset of
 | Model-conditional prompt variants (`resolvePromptAppend(model)`) | One provider. Where we do lift prose, use the `gemini.md` variants |
 | A `omo-antigravity` harness adapter package (level C2) | Months of work against plugin APIs Antigravity does not document |
 
+## Tiers collapsed to one `executor` (2026-08-28)
+
+`worker-quick` and `worker-deep` are gone; `.agents/agents/executor.md` replaces both,
+carrying `worker-deep`'s body. Owner decision, and the evidence for it was already in this
+document:
+
+- **Q4 killed the premise.** `model:` accepts only `inherit`/`flash`, so both tiers ran
+  `gemini-3.7-flash-high`. The tier split was buying a *prompt* difference dressed as a
+  cost difference. The Adapted row above already warned that more tiers than real model
+  choices is theatre — with one usable model, two tiers was the theatre.
+- **The cheap tier's only real distinction was a missing shell**, and that made it strictly
+  worse: `worker-quick` could not compile what it wrote, so its verification section was a
+  list of things to eyeball. An agent that cannot prove its edit is not cheaper, it is
+  unverified.
+- **Routing cost more than it saved.** Every dispatch spent a judgement call on tier, and a
+  mis-route cost a full round trip (`worker-quick` was instructed to stop and report "this
+  needs `worker-deep`"). That failure mode no longer exists.
+
+What replaces the tier decision: **prompt scope**. `executor.md` opens with "Exploration is
+proportional; rigour is not" — it sizes its own reading from the goal, and the dispatcher
+controls that by how tightly the goal is scoped. Verification does **not** scale down; the
+body sets two floors, symbol-existence checks always and a module compile for Kotlin.
+
+Absorbed from `worker-quick` rather than dropped: the "do exactly what was asked, no
+refactoring on the way past, no tidying adjacent code" rule (now inside "Completeness, not
+maximalism"), and the `android-resource-policy` skill.
+
+Downstream edits in the same change: `orchestrator.md` (roster, Phase 1 is now *routing*
+not *tier selection*, Phase 3), `rules/orchestrate.md`, `hooks/write_guard.py` (denial text
++ its self-test assertion, 33/33 still green), `hooks/intent_gate.py` (36/36 still green),
+`hooks.json`, `skills/code-review`, `skills/ultrawork`, `oma.py` profiles, `README.md`, and
+the evals — see the next paragraph, it is the one with teeth.
+
+**Evals 1 and 2 were measuring the thing that was deleted.** Their assertions were
+`tier-is-deep` and `tier-is-quick`, i.e. a routing decision that no longer exists. Both were
+unrun (`passed: null` in every arm), so they were rewritten rather than scored-and-voided:
+`explored-the-pattern` (executor read the pokedex contract before a multi-file build) and
+`scope-held` (executor touched only the two named files for a mechanical fix). Those are the
+two directions the proportionality claim can fail, so they are now what step 9 grades. If
+`executor` fails `scope-held`, the merge was wrong and the cheap tier earned its keep after
+all — that is the falsifier, and it is worth stating plainly because a merge is much easier
+to justify after the fact than to disprove.
+
+## `verifier` added — the aggregate build the port had nowhere to put (2026-08-28)
+
+`.agents/agents/verifier.md`: read-only, holds a shell, runs **one** Gradle build over a
+converged change set. Registered in `orchestrator.md`, `AGENTS.md`, and the `minimal` and
+`android` profiles in `oma.py`.
+
+The tier merge above solved "a worker that cannot compile is not cheaper, it is
+unverified" by making the build mandatory *inside every executor*. Combined with the
+fan-out rule ("split whenever two tasks touch disjoint files"), that put N concurrent
+Gradle invocations in one shared worktree. Two failures fall out:
+
+- **Concurrent Gradle in one tree does not just contend, it lies.** The `.gradle`
+  execution-history and file-hash locks serialize at best; AGP `build/` output dirs are
+  not concurrency-safe, so two builds can interleave into one output tree. A green result
+  from that arrangement proves nothing — strictly worse than skipping the build.
+- **Nothing ever built the whole change set.** Each executor compiled its own module.
+  `:feature:a` green + `:feature:b` green does not imply `:app` links, and the only agent
+  positioned to notice — `orchestrator` — has no shell **by design**. The port had
+  imported OMO's slogan (*"a subagent's report is a claim, not evidence"*) without the
+  place where the claim gets checked.
+
+**This is what OMO actually does, and the port had dropped it.** The `lazycodex-worker-*`
+prompts contain no build command at all — they say *"for every success criterion, name the
+exact scenario, invocation, binary observable, and captured artifact path"* and end with
+`EVIDENCE_RECORDED: <path>`. Proof is a **separate stage over the merged change set**,
+run once by `lazycodex-qa-executor` and re-audited by the read-only
+`lazycodex-gate-reviewer`. `verifier` is that stage, minus the review half (`oracle`
+already holds that).
+
+**Floor 3 is OMO's manual-QA channel 4, and it was the owner's catch** — the first cut of
+this agent stopped at Gradle. That was the same mistake in miniature that the whole entry
+is about: a green build is not a working app, and *"TESTS ALONE NEVER PROVE DONE"* is the
+one line `directive.md` puts in capitals. Channel 4 is *"when the surface is a
+desktop/GUI app rather than a page, drive it via OS-level automation against the running
+app; capture action log + screenshot"*. On Android that is `scrcpy-cli`, which the harness
+already had a skill and a lifecycle hook for and no agent wired to verification.
+
+Shape of it: `:app:installDebug` **replaces** `:app:assembleDebug` as the aggregate task
+when the UI pass will run (it depends on assemble, so one build, not two) — which is why
+the agent must decide the device question *before* picking the task. Then `app-start`,
+screenshot, `ui-dump`, and confirm the foreground package is the app under test; a
+launcher or crash dialog in that XML is a FAIL however green the build. Crashes are
+reported with `adb logcat -d` frames, because a screenshot of a dead app is not a
+diagnosis. A dispatcher-supplied scenario extends this; absent one, the launch smoke test
+is the whole of floor 3 and the agent is told not to improvise a tour of the app.
+
+Three deliberate refusals borrowed straight from OMO's *"reject skipped, inferred, and
+partial cases"*: a `PASS WITH GAPS` verdict exists **only** so "no device attached" cannot
+round up to PASS; the agent may never infer the screen works from a green build; and
+`scrcpy-cli` exit codes are not trusted, because it exits **0** while printing
+`No Android devices connected`.
+
+⚠️ Floor 3 is gated on the change being UI-facing *and* a device being present. Booting the
+app to look at a screen nobody touched is cost with no signal — this is `directive.md`'s
+LIGHT/HEAVY triage applied to the device channel, not an unconditional pass.
+
+Also imported from the same place: `directive.md`'s LIGHT/HEAVY triage, which sizes
+evidence to the change. `executor.md`'s "Verification does not scale down" was a
+deliberate inversion of it, and it is now qualified rather than reversed — floor 1 (symbol
+existence) never lifts, floor 2 (compile) is **withheld only when the dispatch prompt says
+a `verifier` owns the wave**. A lone executor holds Gradle uncontended and still compiles;
+nothing got cheaper by accident.
+
+Deliberately *not* done:
+
+- **No write tool.** The obvious move was to let `verifier` write an evidence artifact,
+  which is what OMO's `<attemptDir>` gives the gate reviewer. Unnecessary here: `loop.py
+  checkpoint --evidence --command --exit-code --evidence-path` already is that mechanism,
+  and `stop_verifier.py` already validates it. `verifier` records through the CLI and
+  stays read-only on files; screenshots reach disk via `scrcpy-cli screenshot <path>`,
+  which is shell output, not a write tool, and `.png` is not in the write guard's gated
+  extension list either way. Artifacts go under `.agents/state/verify/<session>/`, already
+  gitignored, and are passed to the checkpoint as repeatable `--evidence-path` — OMO's
+  `artifactRefs` with our own carrier. ⚠️ It must pass `--session <dispatcher-id>`
+  explicitly — a subagent has its **own** conversation id (see "Parent/child
+  discrimination"), so the default would land the checkpoint in an empty loop of its own.
+- **Still no fan-out cap hook.** The Ported table claims the ulw-loop `Spawn` guard as
+  `PreToolUse` on `invoke_subagent`; it is **not in `hooks.json`**. `verifier` makes the
+  collision avoidable by prompt, not impossible. The hook remains the enforcement half —
+  see Open questions.
+
+The falsifier: if an `executor` in a fan-out runs Gradle anyway despite MUST NOT DO, the
+prompt-level split is insufficient and the `Spawn` guard stops being optional. That is the
+one eval worth adding here — dispatch two disjoint-module executors and assert exactly one
+Gradle invocation reached the daemon. The existing evals (`explored-the-pattern`,
+`scope-held`) test a single executor and cannot see it.
+
+## The delegation rule moved to `AGENTS.md` (2026-08-28)
+
+`.agents/rules/orchestrate.md` is gone; its body is now the project-root `AGENTS.md`.
+Owner call, on the observation that the rule **was not reliably firing** from
+`.agents/rules/`. Doc `04_agent-workflows.md` lists both `.agents/rules/*.md` and
+`AGENTS.md` under the same "Rules" pillar, so this is a change of carrier, not of kind.
+
+Why this rule specifically, and not `android.md` / `lean.md` / `figma.md`: those fail
+*loudly* — a missed Android rule shows up as a hardcoded string or a raw hex color, and
+`rule_gate.py` catches it on the write. The delegation rule fails **silently**: the session
+simply starts editing code itself and nothing looks wrong. `write_guard.py` is the only
+backstop, and a hook that denies a write the model was never told not to attempt is a
+confusing experience rather than a guardrail. So this one gets the carrier that is always
+read. (Note the direction of travel: e27833d moved `AGENTS.md` → `rules/android.md`; this
+moves the *other* rule back the other way. The two are not in tension — `android.md` is the
+domain rule with a hook behind it, `AGENTS.md` is the process rule without one.)
+
+Consequence for `oma`: the harness is no longer purely `.agents/`. `AGENTS.md` is written to
+the target **root**, delimited by `<!-- oma:orchestrate:start/end -->`, so a project that
+already has an `AGENTS.md` keeps it — the block is appended, `update` refreshes only the
+block, and `remove` un-splices it (deleting the file only when nothing else is in it).
+Manifest key is `../AGENTS.md`, deliberately outside the `.agents/` walk, and `status`
+compares it **by block** rather than by file digest because the project owns everything
+around the markers. `--no-agents-md` opts out. Profile `rules` lists lost `orchestrate`.
+
+One bug worth recording, found by testing rather than review: `Path.write_text` translates
+`\n` to CRLF on Windows, so a digest taken over the string never matches the bytes on disk
+and `status` reported the file as locally edited on a clean install. Root-doc writes are
+`open(..., newline="\n")`.
+
 ## Translation rules
 
 When lifting any OMO markdown:
@@ -88,7 +248,7 @@ When lifting any OMO markdown:
 | grep / glob | `grep_search`, `list_dir` |
 | bash | `run_command` |
 | `load_skills=[...]` | `skills:` frontmatter (dispatch-time, not call-time) |
-| `task(category="deep")` | `invoke_subagent(worker-deep)` |
+| `task(category=…)` (any tier) | `invoke_subagent(executor)` |
 
 **Convention:** agents are flat files — `.agents/agents/<name>.md`, not
 `<name>/agent.md`. Both forms are documented as discoverable; flat is chosen
@@ -217,7 +377,7 @@ Named agents **are** addressable. Observed args:
 ```
 
 `TypeName` is the frontmatter `name:`; `Role` is the display name. So tier dispatch is
-`invoke_subagent(TypeName="worker-deep")` and **step 5's design holds**. The fan-out cap
+`invoke_subagent(TypeName="executor")` and **step 5's design holds**. The fan-out cap
 reads `toolCall.args.Subagents` — an array, so N spawns arrive in one call.
 
 ### `tools:` is NOT the runtime tool set
@@ -260,7 +420,7 @@ instruction only, not by construction.
 From doc `01_introducing-custom-agents.md`: `mainAgent`, `subagent`, `permissionMode`
 (e.g. `acceptEdits`), and `commandExecutionPolicy` (`auto` lets an agent run build/test
 commands unattended while destructive commands stay gated). The latter two are the right
-knob for `worker-deep` under long-running autonomous work, but they loosen permissions, so
+knob for `executor` under long-running autonomous work, but they loosen permissions, so
 they are left unset until explicitly opted into.
 
 ### Failed subagents are invisible to hooks (closes Q8)
@@ -407,9 +567,12 @@ claude-sonnet-4-6   claude-opus-4-6-thinking  gpt-oss-120b-medium
 ```
 
 Effort rides in the id, and `--effort` exists separately. Consequence for step 5: real
-tier differentiation is available (a Pro or Opus tier for `oracle`/`worker-deep`, a
-flash-low tier for `worker-quick`/`explore`). **Currently all five are pinned to
-`gemini-3.7-flash-high`** by owner decision; differentiating them is a later pass.
+tier differentiation is available *at the session level* (a Pro or Opus tier for
+`oracle`, a flash-low tier for `explore`) — but **not through `model:`**, which accepts
+only `inherit`/`flash`. **All agents are pinned to `gemini-3.7-flash-high`** by owner
+decision. Superseded in part 2026-08-28: this is the finding that collapsed
+`worker-quick`/`worker-deep` into one `executor`, since a tier that cannot differ by model
+differs only by prompt.
 
 ### `--agent <name>` fails SILENTLY
 
@@ -448,7 +611,7 @@ invoked via `invoke_subagent`" — a runtime alternative to `.agents/agents/*.md
 `DeepCoder` and `DeepInvestigator`, invoked as
 `invoke_subagent(TypeName='DeepCoder', Workspace='inherit')`. The binary states they are
 **hidden from the subagents list but fully invocable**. Their built-in prompts use the
-same spawn-and-wait pipeline shape we are building. `worker-deep` partly reinvents
+same spawn-and-wait pipeline shape we are building. `executor` partly reinvents
 `DeepCoder` — worth comparing before investing further in it.
 
 ### `IdleSubagentGuardStopHook` exists in the runtime
@@ -588,7 +751,7 @@ nothing is caught by the ledger-advance check, which is the same brake by a chea
 | 8 | Why did one of two `invoke_subagent` calls produce no hooked conversation? | fan-out accounting in the spawn guard | ✅ **closed** — the subagent failed to construct; failed spawns leave an empty brain dir and emit no hook records |
 | 9 | Argument shape of `replace_file_content` / `multi_replace_file_content` (only `write_to_file`'s `TargetFile` is documented) | precision of the rule gate on edits, not just whole-file writes | instrumented — `rule_gate.py` logs unrecognised shapes to `.agents/state/rule_gate_unknown_args.jsonl` and passes through; check that file after a session with Kotlin edits |
 | 5 | Does this harness ever ship outside the company? If yes: write tier bodies **clean-room** from behavior descriptions, do not adapt OMO prose | sourcing for tier bodies + ultrawork | ✅ **decided 2026-08-27 — internal only.** Adapting OMO prose is permitted under the Sustainable Use License's internal-business-use grant. Step 5 bodies were adapted from `openai-categories.ts`, `explore.ts`, `oracle.ts`, and `sisyphus-dynamic-prompt-{role,execution}.ts`. If the ship decision ever reverses, these five files are the derivative work to rewrite |
-| 6 | Ultrawork tone vs `ponytail.md` — its maximalism ("deliver the FULL implementation", "no simplified versions") directly contradicts our YAGNI rule | ultrawork content | ✅ **decided 2026-08-27 — completeness, not maximalism.** Keep the finishing pressure ("requested scope, delivered and verified — no stubs, no TODOs"); drop "FULL implementation", "no simplified versions", "maximum thoroughness". `ponytail.md` remains the sole authority on *how much* to build. The resolution is already written into `worker-deep.md` under "Completeness, not maximalism" — reuse that wording in `ultrawork.md` |
+| 6 | Ultrawork tone vs `ponytail.md` — its maximalism ("deliver the FULL implementation", "no simplified versions") directly contradicts our YAGNI rule | ultrawork content | ✅ **decided 2026-08-27 — completeness, not maximalism.** Keep the finishing pressure ("requested scope, delivered and verified — no stubs, no TODOs"); drop "FULL implementation", "no simplified versions", "maximum thoroughness". `ponytail.md` remains the sole authority on *how much* to build. The resolution is already written into `worker-deep.md` under "Completeness, not maximalism" — reuse that wording in `ultrawork.md`. *(That file is now `executor.md`; the section survives the 2026-08-28 merge verbatim.)* |
 | 10 | Is `invoke_subagent` a valid `tools:` registry name? It is **not** in the runtime base set, so the orchestrator must declare it — but declaring a name absent from the registry is how `call_mcp_tool` broke three agents | whether `orchestrator` constructs | **still open.** `orchestrator` is the one step-5 agent not yet dispatched as a subagent (it is `mainAgent: true`, and main-agent selection via `--agent` could not be confirmed working). Supporting evidence: `invoke_subagent` occurs 68× in `agy.exe` next to `define_subagent`, vs exactly once for known-invalid `call_mcp_tool`. **How to check:** `grep "not found in registry" ~/.gemini/antigravity-cli/cli.log` — a bad tool name is logged there verbatim (a bad *model* value is not) |
 | 11 | Does `mainAgent: true` work at all? | the no-write invariant, i.e. all of step 5's premise | ❌ **no — not via `agy --agent <name>` in CLI 1.1.22.** Verified three ways: the body never enters the system prompt and the session keeps the full default toolset. Worse than "opt-in": unavailable. `tools:` *is* enforced on the subagent path, so the invariant must move there or into the workflow file. Retest on the 2.0 desktop app |
 
@@ -630,7 +793,8 @@ nothing is caught by the ledger-advance check, which is the same brake by a chea
    cached "Always Allow". Flipping `PASS_DECISION` to `allow` auto-approves clean
    Kotlin writes — a real UX change, opt in deliberately.
 5. ~~**Tier workers + process agents**~~ ✅ **written 2026-08-27** — `orchestrator`, `explore`,
-   `oracle`, `worker-quick`, `worker-deep` in `.agents/agents/`, plus a rewrite of
+   `oracle`, `worker-quick`, `worker-deep` in `.agents/agents/` (**the two workers merged into
+   `executor` 2026-08-28** — see "Tiers collapsed to one `executor`"), plus a rewrite of
    `code-review` to actually delegate (it was a four-phase solo workflow; the acceptance test
    was untestable against it). That file later moved to `.agents/skills/code-review/SKILL.md`
    — workflows are deprecated — and the acceptance test passed there on 2026-08-27.
@@ -720,8 +884,8 @@ nothing is caught by the ledger-advance check, which is the same brake by a chea
    the one deviation is that it sits at `.agents/evals/` rather than inside a skill, because the
    subject is the roster and not one skill.
    The five tasks are grounded in real `CodebaseCompose` files and cover steps 4–8: MVI feature
-   build (`worker-deep` + delegation packet), mechanical string fix (`worker-quick` tier
-   selection), legacy comment cleanup (`rule_gate` + minimality), a read-only investigation
+   build (`executor` + delegation packet, asserting it explored the pattern first), mechanical
+   string fix (`executor` scope discipline, asserting it did *not* explore), legacy comment cleanup (`rule_gate` + minimality), a read-only investigation
    (`explore` fan-out + Phase 0 classification, asserting **zero** writes), and an `ultrawork`
    multi-goal run (intent gate + `loop.py` + `stop_verifier`).
    **This cannot be scripted**, and the two findings that forbid it are already recorded above:
@@ -732,7 +896,7 @@ nothing is caught by the ledger-advance check, which is the same brake by a chea
    *Acceptance:* `benchmark.json` + `benchmark.md` at the iteration root, with a
    non-discriminating-assertion section — upstream's own finding was that assertions passing in
    both arms measure baseline model competence, not the harness.
-   **A null result is the point.** If `worker-deep` grades level with a plain session, that is the
+   **A null result is the point.** If `executor` grades level with a plain session, that is the
    evidence for deleting it — see the `DeepCoder` / `DeepInvestigator` note above, which it may
    simply be reinventing.
 

@@ -26,8 +26,8 @@ All eight steps (including 5b) are done. Two things to read before building on t
 | `.agents/hooks/rule_gate.py` | `PreToolUse` gate: Kotlin comments / hardcoded UI strings / raw hex. `--self-test`, `--scan <path>` |
 | `.agents/hooks/scrcpy_daemon.py` | Owns the scrcpy daemon. `--self-test`, `--status` |
 | `.agents/hooks/probe.py` | Hook-payload probe, disabled. Re-enable to answer new payload questions |
-| `.agents/agents/*.md` | 10 agents, flat files. `call_mcp_tool` removed from `tools:` (it broke construction) |
-| `.agents/agents/{orchestrator,explore,oracle,worker-quick,worker-deep}.md` | Step 5. Bodies 51–102 lines, adapted from OMO |
+| `.agents/agents/*.md` | 7 agents, flat files. `call_mcp_tool` removed from `tools:` (it broke construction) |
+| `.agents/agents/{orchestrator,explore,oracle,executor}.md` | Step 5. Bodies 83–124 lines, adapted from OMO. `executor` merged `worker-quick`+`worker-deep` on 2026-08-28 (MAPPING: "Tiers collapsed to one `executor`") |
 | `.agents/skills/code-review/SKILL.md` | Delegating review. Was `workflows/code-review.md` until workflows turned out to be deprecated; **live-verified** to resolve as `/code-review` and to fan out three `explore` subagents plus an `oracle` consult |
 | `.agents/scripts/loop.py` | Step 6. Goal loop CLI: `create-goals`, `status`, `checkpoint`, `steer`, `reconstruct`, `--self-test` (35 fixtures). **Fails loud**, unlike the hooks |
 | `.agents/skills/loop/SKILL.md` | Teaches the model the loop CLI's grammar and its stop rules |
@@ -180,6 +180,10 @@ therefore comes from the prompt and tool set, not the model.
 | `worker-quick.md` | write tools, **no shell** | `QUICK_CATEGORY_PROMPT_APPEND` |
 | `worker-deep.md` | write tools + `run_command` | `DEEP_CATEGORY_PROMPT_APPEND_GPT_5_5` |
 
+The two worker rows are the 2026-08-27 state. They were merged into `executor.md` (write
+tools + `run_command`, both prompt sources) on 2026-08-28 — the provenance is recorded here
+because it is what the license note in MAPPING refers to.
+
 Checked locally: YAML parses for all five, each filename matches its `name:`, bodies are
 51–102 lines (under the 120 cap).
 
@@ -231,7 +235,7 @@ orchestrator writes no code itself. A bad `tools:` entry fails silently apart fr
 error string in the parent's transcript, so check construction explicitly.
 
 **Deliberately not set:** `commandExecutionPolicy: auto` / `permissionMode: acceptEdits`
-on the workers. They are real frontmatter keys (doc 01) and would suit `worker-deep`'s
+on the executor. They are real frontmatter keys (doc 01) and would suit its
 autonomous Gradle runs, but they loosen permissions — opt in knowingly, not by default.
 
 ---
@@ -405,7 +409,7 @@ same-named workflow file. **Skills *are* the slash-command mechanism.**
 
 So ultrawork is a skill, and it gets `/ultrawork` plus semantic discovery for free.
 Rewritten from OMO's `ultrawork/gemini.md` (325 lines → 130), mapped onto what this harness
-actually has: `invoke_subagent` fan-out instead of `task()`, `explore`/`oracle`/`worker-*`
+actually has: `invoke_subagent` fan-out instead of `task()`, `explore`/`oracle`/`executor`
 instead of OMO's roster, Gradle compile + `testDebugUnitTest` instead of `lsp_diagnostics`,
 the `scrcpy` skill for real-surface QA, and — the useful substitution — **`loop.py`
 create-goals in place of OMO's "GOAL REGISTRATION" *and* its `mktemp` durable notepad.** The

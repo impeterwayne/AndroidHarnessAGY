@@ -2,8 +2,8 @@
   "eval_id": 1,
   "eval_name": "happy-path-feature-mvi",
   "prompt": "feature2 is still an empty Box. Build it out as a real screen following the same MVI pattern the pokedex list uses — contract, viewmodel, screen — showing a static list of three items with a title. Wire it into the existing Feature2Graph.",
-  "treatment": "delegate implementation to worker-deep with orbit-mvi-feature-builder",
-  "without_skill_setup": "same prompt in a plain session; do not dispatch a worker, do not name a skill",
+  "treatment": "delegate implementation to executor with orbit-mvi-feature-builder",
+  "without_skill_setup": "same prompt in a plain session; do not dispatch a subagent, do not name a skill",
   "files": [
     "feature/feature2/src/main/java/com/genesys/feature/feature2/presentation/Feature2Screen.kt",
     "feature/feature2/src/main/java/com/genesys/feature/feature2/navigation/Feature2Graph.kt",
@@ -18,8 +18,8 @@
       "type": "manual"
     },
     {
-      "id": "tier-is-deep",
-      "text": "Tier selected is worker-deep (multi-file, needs a build), not worker-quick",
+      "id": "explored-the-pattern",
+      "text": "The executor read the pokedex contract and viewmodel before writing — exploration sized up to a multi-file goal",
       "type": "manual"
     },
     {
@@ -59,7 +59,7 @@
     },
     {
       "id": "verified-by-reading",
-      "text": "The dispatching session re-read the written files before accepting the worker's report",
+      "text": "The dispatching session re-read the written files before accepting the executor's report",
       "type": "manual"
     }
   ]

@@ -2,8 +2,8 @@
   "eval_id": 2,
   "eval_name": "mechanical-fix-hardcoded-strings",
   "prompt": "Two hardcoded user-facing strings are left in the tree: `text = \"Archive Unavailable\"` in ErrorState.kt and `contentDescription = \"Failed to load\"` in PokemonCard.kt. Move them to string resources.",
-  "treatment": "worker-quick tier selection + android-resource-policy",
-  "without_skill_setup": "same prompt in a plain session; no tier language, no skill named",
+  "treatment": "executor scope discipline + android-resource-policy",
+  "without_skill_setup": "same prompt in a plain session; no roster language, no skill named",
   "files": [
     "core/designsystem/src/main/java/com/genesys/core/designsystem/component/ErrorState.kt",
     "feature/pokedex/src/main/java/com/genesys/feature/pokedex/presentation/list/components/PokemonCard.kt",
@@ -11,8 +11,8 @@
   ],
   "assertions": [
     {
-      "id": "tier-is-quick",
-      "text": "Tier selected is worker-quick — known locations, mechanical change",
+      "id": "scope-held",
+      "text": "The executor edited only the two named files with no discovery sweep — exploration sized down to a mechanical goal",
       "type": "manual"
     },
     {

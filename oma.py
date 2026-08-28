@@ -2,9 +2,11 @@
 """
 oma -- inject the Antigravity Android agent harness into any project.
 
-The whole payload is one directory: `.agents/` (rules, skills, agents, hooks,
-mcp_config.json). Nothing is written to the target's project root, so `init` is
-a self-contained, reversible drop-in.
+Almost all of the payload is one directory: `.agents/` (rules, skills, agents,
+hooks, mcp_config.json). The one exception is `AGENTS.md`, which carries the
+delegation rule and must sit at the project root to be read reliably -- it is
+written as a marker-delimited block, so an existing `AGENTS.md` keeps its own
+content and `remove` takes back only the block it added.
 
     python oma.py init   <target>     copy .agents/ into <target>
     python oma.py update <target>     re-copy, keeping locally edited files
@@ -32,6 +34,14 @@ SOURCE_ROOT = Path(__file__).resolve().parent
 SOURCE_AGENTS = SOURCE_ROOT / ".agents"
 MANIFEST_NAME = ".oma.json"
 
+# The delegation rule lives at the project root rather than in `.agents/rules/`:
+# rule files load unreliably, `AGENTS.md` is always read. Manifest keys are
+# relative to `<target>/.agents/`, so this one is recorded as `../AGENTS.md`.
+ROOT_DOC = "AGENTS.md"
+ROOT_DOC_KEY = "../" + ROOT_DOC
+BLOCK_START = "<!-- oma:orchestrate:start -->"
+BLOCK_END = "<!-- oma:orchestrate:end -->"
+
 # Directories and files that are development scaffolding for the harness repo
 # itself and have no business in a target project.
 EXCLUDES = (
@@ -57,9 +67,10 @@ PROFILES: dict[str, dict[str, list[str]]] = {
         "skills": [
             "lean", "lean-audit", "lean-debt", "lean-gain", "lean-help",
             "lean-review", "code-review", "document_project", "loop", "ultrawork",
+            "gradle-run", "scrcpy",
         ],
-        "agents": ["explore", "oracle", "orchestrator", "worker-deep", "worker-quick"],
-        "rules": ["orchestrate", "lean"],
+        "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
+        "rules": ["lean"],
     },
     "figma": {
         "skills": [
@@ -70,7 +81,7 @@ PROFILES: dict[str, dict[str, list[str]]] = {
             "explore", "figma-analyzer", "figma-asset-extractor",
             "figma-compose-developer", "orchestrator",
         ],
-        "rules": ["figma", "android", "orchestrate", "lean"],
+        "rules": ["figma", "android", "lean"],
     },
     "android": {
         "skills": [
@@ -88,8 +99,8 @@ PROFILES: dict[str, dict[str, list[str]]] = {
             "orbit-mvi-feature-builder", "play-policy-insights", "r8-analyzer",
             "scrcpy", "styles", "testing-setup", "translate-strings", "ultrawork",
         ],
-        "agents": ["explore", "oracle", "orchestrator", "worker-deep", "worker-quick"],
-        "rules": ["android", "orchestrate", "lean"],
+        "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
+        "rules": ["android", "lean"],
     },
 }
 
@@ -234,6 +245,69 @@ def merge_json(src: Path, dst: Path, key: str | None) -> str:
     return json.dumps(out, indent=2, ensure_ascii=False) + "\n"
 
 
+def splice_block(existing: str, block: str) -> str:
+    """Put `block` into `existing`, replacing a previous block if one is there."""
+    start = existing.find(BLOCK_START)
+    end = existing.find(BLOCK_END)
+    if start != -1 and end > start:
+        tail = existing[end + len(BLOCK_END):]
+        return existing[:start] + block.strip() + tail
+    if not existing.strip():
+        return block
+    return existing.rstrip() + "\n\n" + block
+
+
+def extract_block(text: str) -> str:
+    """The block as it currently sits in a file, or "" if it is not there."""
+    start = text.find(BLOCK_START)
+    end = text.find(BLOCK_END)
+    if start == -1 or end <= start:
+        return ""
+    return text[start:end + len(BLOCK_END)].strip()
+
+
+def source_block() -> str:
+    src = SOURCE_ROOT / ROOT_DOC
+    return src.read_text(encoding="utf-8").strip() if src.is_file() else ""
+
+
+def write_root_doc(target: Path, dry_run: bool) -> tuple[str, str | None]:
+    """Install AGENTS.md at the target root. Returns (what happened, digest)."""
+    block = source_block()
+    if not block:
+        return "missing", None
+    dst = target / ROOT_DOC
+    existing = dst.read_text(encoding="utf-8") if dst.is_file() else ""
+    text = splice_block(existing, block + "\n")
+    if not text.endswith("\n"):
+        text += "\n"
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    if existing == text:
+        return "current", digest
+    if not dry_run:
+        # newline="\n" on purpose: the digest above is of these exact bytes, and
+        # text mode would silently write CRLF on Windows and never match again.
+        with dst.open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+    if not existing:
+        return "created", digest
+    return "updated" if BLOCK_START in existing else "appended", digest
+
+
+def strip_block(existing: str) -> str:
+    """Take our block back out, leaving whatever the project wrote around it."""
+    start = existing.find(BLOCK_START)
+    end = existing.find(BLOCK_END)
+    if start == -1 or end <= start:
+        return existing
+    head = existing[:start].rstrip()
+    tail = existing[end + len(BLOCK_END):].lstrip()
+    if head and tail:
+        return head + "\n\n" + tail
+    return (head + tail).strip()
+
+
 def merged_text(rel: str, src: Path, dst: Path) -> str:
     if rel == "mcp_config.json":
         return merge_json(src, dst, "mcpServers")
@@ -357,10 +431,18 @@ def do_install(args, updating: bool) -> int:
             digests[rel] = sha256(src)
         written.append(rel)
 
-    # Files this install no longer ships but a previous one did.
+    root_doc = None
+    if not args.no_agents_md:
+        root_doc, root_digest = write_root_doc(target, args.dry_run)
+        if root_digest:
+            digests[ROOT_DOC_KEY] = root_digest
+
+    # Files this install no longer ships but a previous one did. AGENTS.md is
+    # never in here: it is not ours to delete, only our block inside it is, and
+    # `remove` is the command that takes that block back.
     stale = []
     if manifest:
-        shipped = set(files)
+        shipped = set(files) | {ROOT_DOC_KEY}
         for rel in manifest.get("files", {}):
             if rel not in shipped and (target_agents / rel).is_file() and rel not in state["modified"]:
                 stale.append(rel)
@@ -378,6 +460,14 @@ def do_install(args, updating: bool) -> int:
     print(f"  profile      {args.profile}  (source {source_commit()})")
     print(f"  {verb:<12} {len(written)} file(s)"
           + (f", {unchanged_n} already current" if unchanged_n else ""))
+    if root_doc == "created":
+        print(f"  {verb:<12} {ROOT_DOC} (delegation rule, project root)")
+    elif root_doc == "appended":
+        print(f"  appended     {ROOT_DOC} (your content kept; ours is the marked block)")
+    elif root_doc == "updated":
+        print(f"  refreshed    {ROOT_DOC} (marked block only; the rest is untouched)")
+    elif root_doc == "current":
+        print(f"  {ROOT_DOC:<12} already current")
     for rel in merged:
         print(f"  merged       {rel} (your entries kept, harness entries added)")
     for rel in skipped:
@@ -386,8 +476,9 @@ def do_install(args, updating: bool) -> int:
         print(f"  {'pruned' if args.prune and not args.dry_run else 'orphaned'}       {rel}"
               + ("" if args.prune else " (no longer in profile; --prune to delete)"))
     if not existing and not args.dry_run:
-        print("\nNext: open the project in Antigravity. `.agents/rules/*.md` load always;")
-        print("skills load on demand; hooks run with CWD = .agents/ and need `python` on PATH.")
+        print("\nNext: open the project in Antigravity. `AGENTS.md` and `.agents/rules/*.md`")
+        print("load always; skills load on demand; hooks run with CWD = .agents/ and need")
+        print("`python` on PATH.")
     return 0
 
 
@@ -414,9 +505,23 @@ def do_status(args) -> int:
 
     outdated = []
     for rel, digest in manifest.get("files", {}).items():
+        if rel == ROOT_DOC_KEY:
+            continue
         src = SOURCE_AGENTS / rel
         if src.is_file() and sha256(src) != digest and rel not in state["modified"]:
             outdated.append(rel)
+
+    # AGENTS.md is compared by block, not by file digest: the project owns
+    # everything outside the markers, so a whole-file diff says nothing.
+    if ROOT_DOC_KEY in manifest.get("files", {}):
+        root_dst = target / ROOT_DOC
+        here = extract_block(root_dst.read_text(encoding="utf-8")) if root_dst.is_file() else ""
+        if not here:
+            print(f"  {ROOT_DOC:<12} block missing -- run `update` to restore it")
+        elif here != source_block():
+            print(f"  {ROOT_DOC:<12} block differs from source -- run `update`")
+        else:
+            print(f"  {ROOT_DOC:<12} block current")
 
     print(f"  {len(state['unchanged'])} unchanged, {len(state['modified'])} edited locally,"
           f" {len(state['deleted'])} deleted, {len(outdated)} stale vs source")
@@ -447,11 +552,32 @@ def do_remove(args) -> int:
             print(f"    {rel}")
         die("refusing to delete local edits -- re-run with --force")
 
+    root_dst = target / ROOT_DOC
+    root_action = None
+    if root_dst.is_file():
+        before = root_dst.read_text(encoding="utf-8")
+        if BLOCK_START in before:
+            rest = strip_block(before)
+            root_action = "delete" if not rest else "unsplice"
+
     if args.dry_run:
         print(f"oma: would delete {target_agents}")
+        if root_action == "delete":
+            print(f"oma: would delete {root_dst} (only our block is in it)")
+        elif root_action == "unsplice":
+            print(f"oma: would remove our block from {root_dst}, keeping your content")
         return 0
+
     shutil.rmtree(target_agents)
     print(f"oma: removed {target_agents}")
+    if root_action == "delete":
+        root_dst.unlink()
+        print(f"oma: removed {root_dst}")
+    elif root_action == "unsplice":
+        kept = strip_block(root_dst.read_text(encoding="utf-8")) + "\n"
+        with root_dst.open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(kept)
+        print(f"oma: removed our block from {root_dst}, kept your content")
     return 0
 
 
@@ -479,6 +605,9 @@ def do_list(args) -> int:
         print()
     except Exception:
         pass
+    print(f"root files ({1 if (SOURCE_ROOT / ROOT_DOC).is_file() else 0})")
+    print(f"  {ROOT_DOC:<10} delegation rule, spliced into the target's root file")
+    print()
     print("profiles")
     print(f"  {'full':<10} everything above (default)")
     for name, spec in PROFILES.items():
@@ -502,6 +631,8 @@ def add_selection_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-rules", action="store_true")
     p.add_argument("--no-hooks", action="store_true", help="skip hooks.json and hooks/")
     p.add_argument("--no-mcp", action="store_true", help="skip mcp_config.json")
+    p.add_argument("--no-agents-md", action="store_true",
+                   help=f"skip {ROOT_DOC} (leaves the project root untouched)")
     p.add_argument("-n", "--dry-run", action="store_true", help="print the plan only")
 
 
