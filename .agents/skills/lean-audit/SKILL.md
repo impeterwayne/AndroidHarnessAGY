@@ -18,13 +18,16 @@ Rank findings starting with the **biggest cuts first** (e.g. entire redundant cl
 
 ### Tags:
 - `delete:` Dead code, unused layers, redundant wrapper classes, speculative features. *(Replacement: delete / inline)*.
+- `boundary:` Wide interface smell. Functions or Composables taking $>4$ parameters instead of splitting responsibilities or passing a well-shaped value.
+- `layer:` Unnecessary manager/handler/adapter/factory added to do one thing. Collapse or remove.
 - `stdlib:` Hand-rolled logic that Kotlin standard library or Android KTX already provides. *(Name the stdlib/KTX feature)*.
 - `native:` Custom UI or widgets that can be replaced with built-in Android / Material components.
 - `yagni:` Abstraction with one implementation, config with single constant values, or unused flexibility.
 - `shrink:` Verbose boilerplate that can be reduced to idiomatic Kotlin expressions.
 
-## Non-Negotiable Guards
-Do not flag necessary safety features:
+## Non-Negotiable Guards (The Fence)
+Do not flag necessary safety features or invariants:
 - Kotlin Null Safety & safe calls (`?.`, `?:`).
 - `strings.xml` resource references.
 - MVVM / Clean Architecture boundaries (ViewModels, UseCases, Repositories).
+- Lifecycle, auth, error states, and data integrity invariants.
