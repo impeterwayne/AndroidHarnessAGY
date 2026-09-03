@@ -105,7 +105,7 @@ maximalism"), and the `android-resource-policy` skill.
 Downstream edits in the same change: `orchestrator.md` (roster, Phase 1 is now *routing*
 not *tier selection*, Phase 3), `rules/orchestrate.md`, `hooks/write_guard.py` (denial text
 + its self-test assertion, 33/33 still green), `hooks/intent_gate.py` (36/36 still green),
-`hooks.json`, `skills/code-review`, `skills/ultrawork`, `oma.py` profiles, `README.md`, and
+`hooks.json`, `skills/code-review`, `skills/ultrawork`, `aha.py` profiles, `README.md`, and
 the evals — see the next paragraph, it is the one with teeth.
 
 **Evals 1 and 2 were measuring the thing that was deleted.** Their assertions were
@@ -122,7 +122,7 @@ to justify after the fact than to disprove.
 
 `.agents/agents/verifier.md`: read-only, holds a shell, runs **one** Gradle build over a
 converged change set. Registered in `orchestrator.md`, `AGENTS.md`, and the `minimal` and
-`android` profiles in `oma.py`.
+`android` profiles in `aha.py`.
 
 The tier merge above solved "a worker that cannot compile is not cheaper, it is
 unverified" by making the build mandatory *inside every executor*. Combined with the
@@ -222,8 +222,8 @@ read. (Note the direction of travel: e27833d moved `AGENTS.md` → `rules/androi
 moves the *other* rule back the other way. The two are not in tension — `android.md` is the
 domain rule with a hook behind it, `AGENTS.md` is the process rule without one.)
 
-Consequence for `oma`: the harness is no longer purely `.agents/`. `AGENTS.md` is written to
-the target **root**, delimited by `<!-- oma:orchestrate:start/end -->`, so a project that
+Consequence for `aha`: the harness is no longer purely `.agents/`. `AGENTS.md` is written to
+the target **root**, delimited by `<!-- aha:orchestrate:start/end -->`, so a project that
 already has an `AGENTS.md` keeps it — the block is appended, `update` refreshes only the
 block, and `remove` un-splices it (deleting the file only when nothing else is in it).
 Manifest key is `../AGENTS.md`, deliberately outside the `.agents/` walk, and `status`

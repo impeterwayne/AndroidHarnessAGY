@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-oma -- inject the Antigravity Android agent harness into any project.
+aha -- inject the Antigravity Android agent harness into any project.
 
 Almost all of the payload is one directory: `.agents/` (rules, skills, agents,
 hooks, mcp_config.json). The one exception is `AGENTS.md`, which carries the
@@ -8,13 +8,13 @@ delegation rule and must sit at the project root to be read reliably -- it is
 written as a marker-delimited block, so an existing `AGENTS.md` keeps its own
 content and `remove` takes back only the block it added.
 
-    python oma.py init   <target>     copy .agents/ into <target>
-    python oma.py update <target>     re-copy, keeping locally edited files
-    python oma.py status <target>     what is installed, and what drifted
-    python oma.py remove <target>     delete the installed harness
-    python oma.py list                available components and profiles
+    python aha.py init   <target>     copy .agents/ into <target>
+    python aha.py update <target>     re-copy, keeping locally edited files
+    python aha.py status <target>     what is installed, and what drifted
+    python aha.py remove <target>     delete the installed harness
+    python aha.py list                available components and profiles
 
-Stdlib only. Run `python oma.py <command> --help` for flags.
+Stdlib only. Run `python aha.py <command> --help` for flags.
 """
 
 from __future__ import annotations
@@ -32,15 +32,18 @@ from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parent
 SOURCE_AGENTS = SOURCE_ROOT / ".agents"
-MANIFEST_NAME = ".oma.json"
+MANIFEST_NAME = ".aha.json"
+LEGACY_MANIFEST_NAME = ".oma.json"
 
 # The delegation rule lives at the project root rather than in `.agents/rules/`:
 # rule files load unreliably, `AGENTS.md` is always read. Manifest keys are
 # relative to `<target>/.agents/`, so this one is recorded as `../AGENTS.md`.
 ROOT_DOC = "AGENTS.md"
 ROOT_DOC_KEY = "../" + ROOT_DOC
-BLOCK_START = "<!-- oma:orchestrate:start -->"
-BLOCK_END = "<!-- oma:orchestrate:end -->"
+BLOCK_START = "<!-- aha:orchestrate:start -->"
+BLOCK_END = "<!-- aha:orchestrate:end -->"
+LEGACY_BLOCK_START = "<!-- oma:orchestrate:start -->"
+LEGACY_BLOCK_END = "<!-- oma:orchestrate:end -->"
 
 # Directories and files that are development scaffolding for the harness repo
 # itself and have no business in a target project.
@@ -53,6 +56,7 @@ EXCLUDES = (
     "**/__pycache__",
     "*.pyc",
     MANIFEST_NAME,
+    LEGACY_MANIFEST_NAME,
 )
 
 # Files whose contents are merged into an existing target file rather than
@@ -110,8 +114,8 @@ PROFILES: dict[str, dict[str, list[str]]] = {
 # --------------------------------------------------------------------------
 
 def die(msg: str) -> None:
-    print(f"oma: {msg}", file=sys.stderr)
-    raise SystemExit(1)
+    print(f"aha: {msg}", file=sys.stderr)
+    sys.exit(1)
 
 
 def source_commit() -> str:
@@ -249,8 +253,13 @@ def splice_block(existing: str, block: str) -> str:
     """Put `block` into `existing`, replacing a previous block if one is there."""
     start = existing.find(BLOCK_START)
     end = existing.find(BLOCK_END)
+    end_tag_len = len(BLOCK_END)
+    if start == -1 or end <= start:
+        start = existing.find(LEGACY_BLOCK_START)
+        end = existing.find(LEGACY_BLOCK_END)
+        end_tag_len = len(LEGACY_BLOCK_END)
     if start != -1 and end > start:
-        tail = existing[end + len(BLOCK_END):]
+        tail = existing[end + end_tag_len:]
         return existing[:start] + block.strip() + tail
     if not existing.strip():
         return block
@@ -261,9 +270,14 @@ def extract_block(text: str) -> str:
     """The block as it currently sits in a file, or "" if it is not there."""
     start = text.find(BLOCK_START)
     end = text.find(BLOCK_END)
+    end_tag_len = len(BLOCK_END)
+    if start == -1 or end <= start:
+        start = text.find(LEGACY_BLOCK_START)
+        end = text.find(LEGACY_BLOCK_END)
+        end_tag_len = len(LEGACY_BLOCK_END)
     if start == -1 or end <= start:
         return ""
-    return text[start:end + len(BLOCK_END)].strip()
+    return text[start:end + end_tag_len].strip()
 
 
 def source_block() -> str:
@@ -292,17 +306,22 @@ def write_root_doc(target: Path, dry_run: bool) -> tuple[str, str | None]:
             fh.write(text)
     if not existing:
         return "created", digest
-    return "updated" if BLOCK_START in existing else "appended", digest
+    return "updated" if (BLOCK_START in existing or LEGACY_BLOCK_START in existing) else "appended", digest
 
 
 def strip_block(existing: str) -> str:
     """Take our block back out, leaving whatever the project wrote around it."""
     start = existing.find(BLOCK_START)
     end = existing.find(BLOCK_END)
+    end_tag_len = len(BLOCK_END)
+    if start == -1 or end <= start:
+        start = existing.find(LEGACY_BLOCK_START)
+        end = existing.find(LEGACY_BLOCK_END)
+        end_tag_len = len(LEGACY_BLOCK_END)
     if start == -1 or end <= start:
         return existing
     head = existing[:start].rstrip()
-    tail = existing[end + len(BLOCK_END):].lstrip()
+    tail = existing[end + end_tag_len:].lstrip()
     if head and tail:
         return head + "\n\n" + tail
     return (head + tail).strip()
@@ -323,7 +342,9 @@ def merged_text(rel: str, src: Path, dst: Path) -> str:
 def read_manifest(target_agents: Path) -> dict | None:
     path = target_agents / MANIFEST_NAME
     if not path.is_file():
-        return None
+        path = target_agents / LEGACY_MANIFEST_NAME
+        if not path.is_file():
+            return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -456,7 +477,7 @@ def do_install(args, updating: bool) -> int:
         write_manifest(target_agents, digests, args)
 
     verb = "would write" if args.dry_run else "wrote"
-    print(f"oma {'update' if updating else 'init'} -> {target_agents}")
+    print(f"aha {'update' if updating else 'init'} -> {target_agents}")
     print(f"  profile      {args.profile}  (source {source_commit()})")
     print(f"  {verb:<12} {len(written)} file(s)"
           + (f", {unchanged_n} already current" if unchanged_n else ""))
@@ -486,10 +507,10 @@ def do_status(args) -> int:
     target = Path(args.target).resolve()
     target_agents = target / ".agents"
     if not target_agents.is_dir():
-        print(f"oma: no .agents/ in {target}")
+        print(f"aha: no .agents/ in {target}")
         return 1
     manifest = read_manifest(target_agents)
-    print(f"oma status -> {target_agents}")
+    print(f"aha status -> {target_agents}")
     if not manifest:
         print("  no manifest -- .agents/ exists but was not installed by this CLI")
         return 1
@@ -542,12 +563,12 @@ def do_remove(args) -> int:
         die(f"no .agents/ in {target}")
     manifest = read_manifest(target_agents)
     if manifest is None and not args.force:
-        die(f"{target_agents} has no oma manifest -- refusing to delete "
+        die(f"{target_agents} has no aha manifest -- refusing to delete "
             "a directory this CLI did not install (use --force)")
 
     state = classify(target_agents, manifest)
     if state["modified"] and not args.force:
-        print(f"oma: {len(state['modified'])} file(s) edited since install:")
+        print(f"aha: {len(state['modified'])} file(s) edited since install:")
         for rel in state["modified"][:20]:
             print(f"    {rel}")
         die("refusing to delete local edits -- re-run with --force")
@@ -556,33 +577,33 @@ def do_remove(args) -> int:
     root_action = None
     if root_dst.is_file():
         before = root_dst.read_text(encoding="utf-8")
-        if BLOCK_START in before:
+        if BLOCK_START in before or LEGACY_BLOCK_START in before:
             rest = strip_block(before)
             root_action = "delete" if not rest else "unsplice"
 
     if args.dry_run:
-        print(f"oma: would delete {target_agents}")
+        print(f"aha: would delete {target_agents}")
         if root_action == "delete":
-            print(f"oma: would delete {root_dst} (only our block is in it)")
+            print(f"aha: would delete {root_dst} (only our block is in it)")
         elif root_action == "unsplice":
-            print(f"oma: would remove our block from {root_dst}, keeping your content")
+            print(f"aha: would remove our block from {root_dst}, keeping your content")
         return 0
 
     shutil.rmtree(target_agents)
-    print(f"oma: removed {target_agents}")
+    print(f"aha: removed {target_agents}")
     if root_action == "delete":
         root_dst.unlink()
-        print(f"oma: removed {root_dst}")
+        print(f"aha: removed {root_dst}")
     elif root_action == "unsplice":
         kept = strip_block(root_dst.read_text(encoding="utf-8")) + "\n"
         with root_dst.open("w", encoding="utf-8", newline="\n") as fh:
             fh.write(kept)
-        print(f"oma: removed our block from {root_dst}, kept your content")
+        print(f"aha: removed our block from {root_dst}, kept your content")
     return 0
 
 
 def do_list(args) -> int:
-    print(f"oma source {SOURCE_AGENTS}  (commit {source_commit()})\n")
+    print(f"aha source {SOURCE_AGENTS}  (commit {source_commit()})\n")
     for kind in ("rules", "agents", "skills"):
         names = components(kind)
         print(f"{kind} ({len(names)})")
@@ -641,7 +662,7 @@ def main(argv: list[str]) -> int:
         die(f"no .agents/ next to {Path(__file__).name} -- run this from the harness repo")
 
     parser = argparse.ArgumentParser(
-        prog="oma", description=__doc__,
+        prog="aha", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 

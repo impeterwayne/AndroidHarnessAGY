@@ -3,7 +3,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-const scriptPath = path.join(__dirname, '..', 'oma.py');
+const scriptPath = path.join(__dirname, '..', 'aha.py');
 const args = [scriptPath, ...process.argv.slice(2)];
 
 function run(cmd, onFail) {

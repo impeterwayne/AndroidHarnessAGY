@@ -1,4 +1,4 @@
-<!-- oma:orchestrate:start -->
+<!-- aha:orchestrate:start -->
 # Delegation Rule: this session plans, workers write
 
 The session the human is talking to **does not edit source files**. Every code change goes
@@ -103,4 +103,4 @@ while a worker fails the same write over and over is not supervision — escalat
 The rest of this harness lives under `.agents/` — `rules/` (always-on constraints),
 `skills/` (on-demand, and the `/<name>` slash commands), `agents/` (the roster above),
 `hooks.json` (deterministic gates).
-<!-- oma:orchestrate:end -->
+<!-- aha:orchestrate:end -->

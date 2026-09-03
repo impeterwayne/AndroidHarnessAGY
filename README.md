@@ -1,8 +1,8 @@
-# AndroidHarnessAGY (OMA — Oh My Antigravity)
+# AndroidHarnessAGY (AHA — Android Harness Antigravity)
 
 > **A production-ready agentic engineering harness for Android development with Google Antigravity IDE & CLI (`agy`).**
 
-**AndroidHarnessAGY** equips Google Antigravity with senior Android engineering guardrails, patterns, and workflows. It packages architectural rules, agent personas, 42 specialized domain skills, deterministic safety hooks, Figma-to-Compose pipelines, and a durable goal-loop engine into a zero-pollution `.agents/` payload that can be injected into any Android repository via the included `oma` CLI.
+**AndroidHarnessAGY** equips Google Antigravity with senior Android engineering guardrails, patterns, and workflows. It packages architectural rules, agent personas, 42 specialized domain skills, deterministic safety hooks, Figma-to-Compose pipelines, and a durable goal-loop engine into a zero-pollution `.agents/` payload that can be injected into any Android repository via the included `aha` CLI.
 
 ---
 
@@ -32,7 +32,7 @@
 - **Automated PreToolUse & PreInvocation Safety Gates**: Python hooks block comment clutter, catch hardcoded UI strings, prevent raw hex colors, and activate rigour modes autonomously.
 - **Resilient Goal Loop Engine (`loop.py`)**: Structured, append-only ledger for multi-goal workflows that survives LLM context compaction and enforces verified exit criteria.
 - **Lean Engineering Mindset**: Enforces YAGNI (You Aren't Gonna Need It), Kotlin stdlib/KTX reuse, Compose native primitives, and zero speculative scaffolding.
-- **Single-Command Drop-in Packaging (`oma`)**: Painlessly inject, sync, or remove the entire harness across multiple Android projects. Everything lands in `.agents/`; the only root file is `AGENTS.md`, spliced in as a marked block so an existing one keeps its content.
+- **Single-Command Drop-in Packaging (`aha`)**: Painlessly inject, sync, or remove the entire harness across multiple Android projects. Everything lands in `.agents/`; the only root file is `AGENTS.md`, spliced in as a marked block so an existing one keeps its content.
 
 ---
 
@@ -40,7 +40,7 @@
 
 ### 1. Install Globally via npm
 
-You can install the harness globally so that `oma` is available anywhere in your terminal:
+You can install the harness globally so that `aha` is available anywhere in your terminal:
 
 ```bash
 # Install globally from npm (or local repository)
@@ -62,19 +62,19 @@ From any directory or directly inside your Android project root:
 
 ```bash
 # Inject into current project
-oma init .
+aha init .
 
 # Or specify a target path
-oma init /path/to/MyAndroidApp
+aha init /path/to/MyAndroidApp
 ```
 
-This injects `.agents/` into your target repository and creates an `.oma.json` manifest to track versions, digests, and local edits.
+This injects `.agents/` into your target repository and creates an `.aha.json` manifest to track versions, digests, and local edits.
 
 It also writes the delegation rule to `AGENTS.md` at the project root, between
-`<!-- oma:orchestrate:start -->` / `<!-- oma:orchestrate:end -->` markers. That rule lives at
+`<!-- aha:orchestrate:start -->` / `<!-- aha:orchestrate:end -->` markers. That rule lives at
 the root rather than in `.agents/rules/` because `AGENTS.md` is read reliably on every turn
 while rule files are not. If your project already has an `AGENTS.md`, the block is appended
-and your content is left alone; `oma update` refreshes only the block, and `oma remove` takes
+and your content is left alone; `aha update` refreshes only the block, and `aha remove` takes
 only the block back out. Skip it entirely with `--no-agents-md`.
 
 ### 3. Installation Profiles
@@ -90,28 +90,28 @@ Tailor the harness payload to your project's needs using `--profile`:
 
 ```bash
 # Examples:
-oma init . --profile android
-oma init . --profile figma
-oma init . --profile minimal
+aha init . --profile android
+aha init . --profile figma
+aha init . --profile minimal
 ```
 
 ### 4. Harness Management Commands
 
 | Command | Description |
 | :--- | :--- |
-| `oma init <target>` | Installs `.agents/` plus the `AGENTS.md` block into `<target>`. Safely merges an existing `AGENTS.md`, `hooks.json`, and `mcp_config.json`. |
-| `oma update <target>` | Updates harness files while strictly preserving any local edits you made. |
-| `oma update <target> --prune` | Updates and removes files no longer included in the active profile. |
-| `oma status <target>` | Inspects the target: shows installed version, upstream commits, and drifted files. |
-| `oma list` | Lists all available rules, skills, agents, hooks, and profiles. |
-| `oma remove <target>` | Safely deletes the installed `.agents/` directory and un-splices the `AGENTS.md` block (protects uncommitted local changes). |
+| `aha init <target>` | Installs `.agents/` plus the `AGENTS.md` block into `<target>`. Safely merges an existing `AGENTS.md`, `hooks.json`, and `mcp_config.json`. |
+| `aha update <target>` | Updates harness files while strictly preserving any local edits you made. |
+| `aha update <target> --prune` | Updates and removes files no longer included in the active profile. |
+| `aha status <target>` | Inspects the target: shows installed version, upstream commits, and drifted files. |
+| `aha list` | Lists all available rules, skills, agents, hooks, and profiles. |
+| `aha remove <target>` | Safely deletes the installed `.agents/` directory and un-splices the `AGENTS.md` block (protects uncommitted local changes). |
 
 #### Granular Component Selection
 ```bash
 # Install only specific skills or skip hooks
-oma init . --skills orbit-mvi-feature-builder,navigation-3,edge-to-edge
-oma init . --no-hooks --no-mcp
-oma init . --dry-run
+aha init . --skills orbit-mvi-feature-builder,navigation-3,edge-to-edge
+aha init . --no-hooks --no-mcp
+aha init . --dry-run
 ```
 
 ---
