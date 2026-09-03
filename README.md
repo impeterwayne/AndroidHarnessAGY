@@ -32,7 +32,7 @@
 - **Automated PreToolUse & PreInvocation Safety Gates**: Python hooks block comment clutter, catch hardcoded UI strings, prevent raw hex colors, and activate rigour modes autonomously.
 - **Resilient Goal Loop Engine (`loop.py`)**: Structured, append-only ledger for multi-goal workflows that survives LLM context compaction and enforces verified exit criteria.
 - **Lean Engineering Mindset**: Enforces YAGNI (You Aren't Gonna Need It), Kotlin stdlib/KTX reuse, Compose native primitives, and zero speculative scaffolding.
-- **Single-Command Drop-in Packaging (`aha`)**: Painlessly inject, sync, or remove the entire harness across multiple Android projects. Everything lands in `.agents/`; the only root file is `AGENTS.md`, spliced in as a marked block so an existing one keeps its content.
+- **Single-Command Drop-in Packaging (`aha`)**: Painlessly inject, sync, or undo the entire harness across multiple Android projects. Installed files are locally excluded file-by-file in `.git/info/exclude` under a marked block so `git status` remains clean without hiding other `.agents/` files or polluting `.gitignore`. Everything lands in `.agents/`; the only root file is `AGENTS.md`, spliced in as a marked block so an existing one keeps its content.
 
 ---
 
@@ -61,8 +61,8 @@ npx android-harness-agy init /path/to/MyAndroidApp
 From any directory or directly inside your Android project root:
 
 ```bash
-# Inject into current project
-aha init .
+# Inject into current project (target defaults to .)
+aha init
 
 # Or specify a target path
 aha init /path/to/MyAndroidApp
@@ -70,12 +70,14 @@ aha init /path/to/MyAndroidApp
 
 This injects `.agents/` into your target repository and creates an `.aha.json` manifest to track versions, digests, and local edits.
 
+Installed harness files are locally excluded file-by-file in `.git/info/exclude` under an `# <!-- aha:exclude:start -->` marked block. This keeps your `git status` clean without hiding other custom or overlapping files in `.agents/` or polluting your project's `.gitignore`.
+
 It also writes the delegation rule to `AGENTS.md` at the project root, between
 `<!-- aha:orchestrate:start -->` / `<!-- aha:orchestrate:end -->` markers. That rule lives at
 the root rather than in `.agents/rules/` because `AGENTS.md` is read reliably on every turn
 while rule files are not. If your project already has an `AGENTS.md`, the block is appended
-and your content is left alone; `aha update` refreshes only the block, and `aha remove` takes
-only the block back out. Skip it entirely with `--no-agents-md`.
+and your content is left alone; `aha update` refreshes only the block, and `aha undo` (or `aha remove`) cleanly
+reverses the installation and restores your original file. Skip it entirely with `--no-agents-md`.
 
 ### 3. Installation Profiles
 
@@ -90,28 +92,31 @@ Tailor the harness payload to your project's needs using `--profile`:
 
 ```bash
 # Examples:
-aha init . --profile android
-aha init . --profile figma
-aha init . --profile minimal
+aha init --profile android
+aha init --profile figma
+aha init --profile minimal
 ```
 
 ### 4. Harness Management Commands
 
 | Command | Description |
 | :--- | :--- |
-| `aha init <target>` | Installs `.agents/` plus the `AGENTS.md` block into `<target>`. Safely merges an existing `AGENTS.md`, `hooks.json`, and `mcp_config.json`. |
-| `aha update <target>` | Updates harness files while strictly preserving any local edits you made. |
-| `aha update <target> --prune` | Updates and removes files no longer included in the active profile. |
-| `aha status <target>` | Inspects the target: shows installed version, upstream commits, and drifted files. |
+| `aha init [target]` | Installs `.agents/` plus the `AGENTS.md` block into `[target]` (default: `.`). Locally excludes installed files file-by-file in `.git/info/exclude`. Safely merges an existing `AGENTS.md`, `hooks.json`, and `mcp_config.json`. |
+| `aha update [target]` | Updates harness files while strictly preserving any local edits you made and refreshing `.git/info/exclude`. |
+| `aha update [target] --prune` | Updates and removes files no longer included in the active profile. |
+| `aha status [target]` | Inspects the target: shows installed version, upstream commits, and drifted files. |
+| `aha undo [target]` | Cleanly reverses `init`: deletes only manifest-tracked files, preserves overlapping user files in `.agents/`, removes entries from `.git/info/exclude`, and unsplices `AGENTS.md`. |
+| `aha undo-init [target]` | Alias for `aha undo`. |
+| `aha remove [target]` | Alias for `aha undo` (protects uncommitted local changes unless `--force`). |
 | `aha list` | Lists all available rules, skills, agents, hooks, and profiles. |
-| `aha remove <target>` | Safely deletes the installed `.agents/` directory and un-splices the `AGENTS.md` block (protects uncommitted local changes). |
 
 #### Granular Component Selection
 ```bash
 # Install only specific skills or skip hooks
-aha init . --skills orbit-mvi-feature-builder,navigation-3,edge-to-edge
-aha init . --no-hooks --no-mcp
-aha init . --dry-run
+aha init --skills orbit-mvi-feature-builder,navigation-3,edge-to-edge
+aha init --no-hooks --no-mcp --no-git-exclude
+aha init --dry-run
+aha undo --dry-run
 ```
 
 ---

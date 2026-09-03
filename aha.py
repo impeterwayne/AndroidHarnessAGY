@@ -6,12 +6,18 @@ Almost all of the payload is one directory: `.agents/` (rules, skills, agents,
 hooks, mcp_config.json). The one exception is `AGENTS.md`, which carries the
 delegation rule and must sit at the project root to be read reliably -- it is
 written as a marker-delimited block, so an existing `AGENTS.md` keeps its own
-content and `remove` takes back only the block it added.
+content and `undo` / `remove` takes back only the block it added.
 
-    python aha.py init   <target>     copy .agents/ into <target>
-    python aha.py update <target>     re-copy, keeping locally edited files
-    python aha.py status <target>     what is installed, and what drifted
-    python aha.py remove <target>     delete the installed harness
+Installed files are excluded individually in `.git/info/exclude` under a marked
+block on `init` and `update`, leaving any overlapping or custom files in `.agents/`
+tracked by git.
+
+    python aha.py init      [target]  copy .agents/ into [target] (default: .)
+    python aha.py update    [target]  re-copy, keeping locally edited files
+    python aha.py status    [target]  what is installed, and what drifted
+    python aha.py undo      [target]  cleanly reverses init, keeping non-AHA files
+    python aha.py undo-init [target]  alias for undo
+    python aha.py remove    [target]  alias for undo
     python aha.py list                available components and profiles
 
 Stdlib only. Run `python aha.py <command> --help` for flags.
@@ -44,6 +50,10 @@ BLOCK_START = "<!-- aha:orchestrate:start -->"
 BLOCK_END = "<!-- aha:orchestrate:end -->"
 LEGACY_BLOCK_START = "<!-- oma:orchestrate:start -->"
 LEGACY_BLOCK_END = "<!-- oma:orchestrate:end -->"
+EXCLUDE_BLOCK_START = "# <!-- aha:exclude:start -->"
+EXCLUDE_BLOCK_END = "# <!-- aha:exclude:end -->"
+LEGACY_EXCLUDE_BLOCK_START = "# <!-- oma:exclude:start -->"
+LEGACY_EXCLUDE_BLOCK_END = "# <!-- oma:exclude:end -->"
 
 # Directories and files that are development scaffolding for the harness repo
 # itself and have no business in a target project.
@@ -327,6 +337,99 @@ def strip_block(existing: str) -> str:
     return (head + tail).strip()
 
 
+def git_exclude_file(target: Path) -> Path | None:
+    """Resolve <target>/.git/info/exclude via git rev-parse or fallback."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "--git-path", "info/exclude"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            p = Path(out.stdout.strip())
+            return p if p.is_absolute() else (target / p).resolve()
+    except Exception:
+        pass
+    fallback = target / ".git" / "info" / "exclude"
+    if (target / ".git").is_dir() or fallback.is_file():
+        return fallback.resolve()
+    return None
+
+
+def git_repo_prefix(target: Path) -> str:
+    """Return repository-relative prefix for target (e.g. '' at root or 'sub/')."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "--show-prefix"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if out.returncode == 0:
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def build_exclude_block(prefix: str, rel_files: list[str]) -> tuple[str, int]:
+    """Build the marked block of individually excluded files for .git/info/exclude."""
+    prefix_agents = f"/{prefix}.agents" if prefix else "/.agents"
+    entries = set()
+    for rel in rel_files:
+        if rel == ROOT_DOC_KEY or rel.startswith(".."):
+            continue
+        entries.add(f"{prefix_agents}/{rel.replace(os.sep, '/')}")
+    entries.add(f"{prefix_agents}/{MANIFEST_NAME}")
+    lines = [EXCLUDE_BLOCK_START] + sorted(entries) + [EXCLUDE_BLOCK_END]
+    return "\n".join(lines) + "\n", len(entries)
+
+
+def splice_exclude_block(existing: str, block: str) -> str:
+    """Put `block` into `existing`, replacing a previous exclude block if present."""
+    start = existing.find(EXCLUDE_BLOCK_START)
+    end = existing.find(EXCLUDE_BLOCK_END)
+    end_tag_len = len(EXCLUDE_BLOCK_END)
+    if start == -1 or end <= start:
+        start = existing.find(LEGACY_EXCLUDE_BLOCK_START)
+        end = existing.find(LEGACY_EXCLUDE_BLOCK_END)
+        end_tag_len = len(LEGACY_EXCLUDE_BLOCK_END)
+    if start != -1 and end > start:
+        tail = existing[end + end_tag_len:].lstrip("\r\n")
+        head = existing[:start].rstrip()
+        if head and tail:
+            return head + "\n\n" + block.strip() + "\n\n" + tail
+        if head:
+            return head + "\n\n" + block.strip() + "\n"
+        if tail:
+            return block.strip() + "\n\n" + tail
+        return block.strip() + "\n"
+    if not existing.strip():
+        return block.strip() + "\n"
+    return existing.rstrip() + "\n\n" + block.strip() + "\n"
+
+
+def strip_exclude_block(existing: str) -> str:
+    """Remove our exclude block, leaving whatever else was in .git/info/exclude."""
+    current = existing
+    while True:
+        start = current.find(EXCLUDE_BLOCK_START)
+        end = current.find(EXCLUDE_BLOCK_END)
+        end_tag_len = len(EXCLUDE_BLOCK_END)
+        if start == -1 or end <= start:
+            start = current.find(LEGACY_EXCLUDE_BLOCK_START)
+            end = current.find(LEGACY_EXCLUDE_BLOCK_END)
+            end_tag_len = len(LEGACY_EXCLUDE_BLOCK_END)
+        if start == -1 or end <= start:
+            break
+        head = current[:start].rstrip()
+        tail = current[end + end_tag_len:].lstrip("\r\n")
+        if head and tail:
+            current = head + "\n\n" + tail
+        elif head:
+            current = head + "\n"
+        else:
+            current = tail
+    return current
+
+
 def merged_text(rel: str, src: Path, dst: Path) -> str:
     if rel == "mcp_config.json":
         return merge_json(src, dst, "mcpServers")
@@ -476,6 +579,29 @@ def do_install(args, updating: bool) -> int:
     if not args.dry_run:
         write_manifest(target_agents, digests, args)
 
+    exclude_status = None
+    exclude_n = 0
+    if not args.no_git_exclude:
+        exclude_path = git_exclude_file(target)
+        if exclude_path:
+            prefix = git_repo_prefix(target)
+            all_exclude = set(files)
+            if manifest:
+                for rel in manifest.get("files", {}):
+                    if rel != ROOT_DOC_KEY and not rel.startswith("..") and (target_agents / rel).is_file():
+                        all_exclude.add(rel)
+            block, exclude_n = build_exclude_block(prefix, sorted(all_exclude))
+            existing_ex = exclude_path.read_text(encoding="utf-8") if exclude_path.is_file() else ""
+            new_ex = splice_exclude_block(existing_ex, block)
+            if existing_ex == new_ex:
+                exclude_status = "current"
+            else:
+                exclude_status = "would update" if args.dry_run else "updated"
+                if not args.dry_run:
+                    exclude_path.parent.mkdir(parents=True, exist_ok=True)
+                    with exclude_path.open("w", encoding="utf-8", newline="\n") as fh:
+                        fh.write(new_ex)
+
     verb = "would write" if args.dry_run else "wrote"
     print(f"aha {'update' if updating else 'init'} -> {target_agents}")
     print(f"  profile      {args.profile}  (source {source_commit()})")
@@ -489,6 +615,11 @@ def do_install(args, updating: bool) -> int:
         print(f"  refreshed    {ROOT_DOC} (marked block only; the rest is untouched)")
     elif root_doc == "current":
         print(f"  {ROOT_DOC:<12} already current")
+    if exclude_status:
+        if exclude_status == "current":
+            print("  git exclude  .git/info/exclude already current")
+        else:
+            print(f"  git exclude  {exclude_status} .git/info/exclude ({exclude_n} entries)")
     for rel in merged:
         print(f"  merged       {rel} (your entries kept, harness entries added)")
     for rel in skipped:
@@ -581,16 +712,75 @@ def do_remove(args) -> int:
             rest = strip_block(before)
             root_action = "delete" if not rest else "unsplice"
 
+    exclude_path = git_exclude_file(target)
+    exclude_action = None
+    if exclude_path and exclude_path.is_file():
+        ex_content = exclude_path.read_text(encoding="utf-8")
+        if EXCLUDE_BLOCK_START in ex_content or LEGACY_EXCLUDE_BLOCK_START in ex_content:
+            exclude_action = "strip"
+
+    files_to_delete: list[Path] = []
+    if manifest:
+        for rel in manifest.get("files", {}):
+            if rel == ROOT_DOC_KEY or rel.startswith(".."):
+                continue
+            p = target_agents / rel
+            if p.is_file():
+                files_to_delete.append(p)
+    for m in (MANIFEST_NAME, LEGACY_MANIFEST_NAME):
+        p = target_agents / m
+        if p.is_file() and p not in files_to_delete:
+            files_to_delete.append(p)
+
+    all_agent_files = {p.resolve() for p in target_agents.rglob("*") if p.is_file()}
+    delete_set = {p.resolve() for p in files_to_delete}
+    remaining_files = all_agent_files - delete_set
+
     if args.dry_run:
-        print(f"aha: would delete {target_agents}")
+        if remaining_files:
+            print(f"aha: would delete {len(files_to_delete)} harness file(s) and preserve {target_agents} ({len(remaining_files)} non-harness file(s) remain)")
+        else:
+            print(f"aha: would delete {len(files_to_delete)} file(s) and remove {target_agents}")
+        if exclude_action == "strip":
+            print(f"aha: would remove exclude block from {exclude_path}")
         if root_action == "delete":
             print(f"aha: would delete {root_dst} (only our block is in it)")
         elif root_action == "unsplice":
             print(f"aha: would remove our block from {root_dst}, keeping your content")
         return 0
 
-    shutil.rmtree(target_agents)
-    print(f"aha: removed {target_agents}")
+    for path in files_to_delete:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+    prune_empty_dirs(target_agents)
+
+    has_remaining = False
+    try:
+        next(target_agents.iterdir())
+        has_remaining = True
+    except (StopIteration, OSError):
+        pass
+
+    if has_remaining:
+        print(f"aha: removed {len(files_to_delete)} harness file(s); preserved {target_agents} (contains other files)")
+    else:
+        try:
+            target_agents.rmdir()
+            print(f"aha: removed {target_agents}")
+        except OSError:
+            print(f"aha: removed {len(files_to_delete)} harness file(s)")
+
+    if exclude_action == "strip" and exclude_path and exclude_path.is_file():
+        ex_content = exclude_path.read_text(encoding="utf-8")
+        stripped = strip_exclude_block(ex_content)
+        if stripped != ex_content:
+            with exclude_path.open("w", encoding="utf-8", newline="\n") as fh:
+                fh.write(stripped)
+            print(f"aha: removed exclude block from {exclude_path}")
+
     if root_action == "delete":
         root_dst.unlink()
         print(f"aha: removed {root_dst}")
@@ -654,6 +844,8 @@ def add_selection_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-mcp", action="store_true", help="skip mcp_config.json")
     p.add_argument("--no-agents-md", action="store_true",
                    help=f"skip {ROOT_DOC} (leaves the project root untouched)")
+    p.add_argument("--no-git-exclude", action="store_true",
+                   help="skip updating .git/info/exclude")
     p.add_argument("-n", "--dry-run", action="store_true", help="print the plan only")
 
 
@@ -667,7 +859,8 @@ def main(argv: list[str]) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="copy .agents/ into a project")
-    p_init.add_argument("target")
+    p_init.add_argument("target", nargs="?", default=".",
+                        help="target directory (default: .)")
     p_init.add_argument("--force", action="store_true",
                         help="proceed even if .agents/ already exists")
     p_init.add_argument("--prune", action="store_true", help=argparse.SUPPRESS)
@@ -675,7 +868,8 @@ def main(argv: list[str]) -> int:
     add_selection_flags(p_init)
 
     p_up = sub.add_parser("update", help="re-copy, keeping locally edited files")
-    p_up.add_argument("target")
+    p_up.add_argument("target", nargs="?", default=".",
+                      help="target directory (default: .)")
     p_up.add_argument("--overwrite-local", action="store_true",
                       help="replace files you edited since install")
     p_up.add_argument("--prune", action="store_true",
@@ -684,13 +878,21 @@ def main(argv: list[str]) -> int:
     add_selection_flags(p_up)
 
     p_st = sub.add_parser("status", help="show what is installed and what drifted")
-    p_st.add_argument("target")
+    p_st.add_argument("target", nargs="?", default=".",
+                      help="target directory (default: .)")
 
-    p_rm = sub.add_parser("remove", help="delete the installed harness")
-    p_rm.add_argument("target")
-    p_rm.add_argument("--force", action="store_true",
-                      help="delete even with local edits or no manifest")
-    p_rm.add_argument("-n", "--dry-run", action="store_true")
+    for cmd in ("remove", "undo", "undo-init"):
+        p_cmd = sub.add_parser(
+            cmd,
+            help="delete the installed harness (reverses init)",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        p_cmd.add_argument("target", nargs="?", default=".",
+                           help="target directory (default: .)")
+        p_cmd.add_argument("--force", action="store_true",
+                           help="delete even with local edits or no manifest")
+        p_cmd.add_argument("-n", "--dry-run", action="store_true",
+                           help="print what would be removed")
 
     sub.add_parser("list", help="show available components and profiles")
 
@@ -708,7 +910,7 @@ def main(argv: list[str]) -> int:
         return do_install(args, updating=True)
     if args.command == "status":
         return do_status(args)
-    if args.command == "remove":
+    if args.command in ("remove", "undo", "undo-init"):
         return do_remove(args)
     if args.command == "list":
         return do_list(args)
