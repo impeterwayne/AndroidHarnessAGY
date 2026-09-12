@@ -95,5 +95,28 @@
         "timeout": 20
       }
     ]
+  },
+  "device-gate": {
+    "_comment": "Makes the andrun device lease non-optional, so parallel git worktrees cannot install over each other. One machine, one pool of devices: two worktrees deploying the same applicationId overwrite each other and the loser's screenshots show the winner's build -- a failure that reads as success, which is why this is enforced rather than documented. PreToolUse on run_command: a command that occupies a device first runs `andrun queue ensure` (hold-or-acquire, bounded 8s wait), then the leased serial is merged into the command via `overwrite` -- `scrcpy-cli screenshot x.png` executes as `scrcpy-cli -s <leased> screenshot x.png`, so an agent cannot drive a device it does not hold and never needs to carry a serial or a lease token. Read-only probes (adb devices, scrcpy-cli device-list, andrun devices/queue/serial) pass through without taking a lease. When every device is held elsewhere the verdict is `deny` naming the holding worktree, its task and remaining TTL, plus the blocking command to run: the hook cannot wait minutes (docs: >10s degrades the agent loop) but the agent's own run_command can, and stays interruptible. Four forms are denied outright because they pick a device themselves and ignore the lease: `adb install`, Gradle's install*/connected*/uninstall* tasks, `andrun install`/`run` without --no-build (which would also run Gradle outside the gradle-run wrapper and flood the context), and `scrcpy-cli daemon start|stop` (owned by the scrcpy-daemon hook). Stop is refcounted by conversationId exactly like scrcpy-daemon -- a finishing verifier subagent must not release the device its dispatcher is still using -- and the last owner out releases the lease. A crashed agent leaks nothing: session leases expire on their TTL (30m, topped up but never accumulated on each gated command). Fails open on every error, on a missing andrun, and when no device is attached at all, so the verifier can observe 'no device' itself and report SKIPPED. Requires andrun >= 1.1 (`andrun queue ensure`, `andrun serial`, worktree-resolved leases). Cost: one Python start (~50ms) per run_command, regex fast-path for the ~95% that touch no device. Escape hatch without editing config: `python .agents/hooks/device_gate.py --off` (also --on, --status, --self-test). Verified: 37/37 fixtures, plus a live Pixel 7a run covering ambient acquire, serial injection, a simulated sibling-worktree conflict, and refcounted release.",
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python hooks/device_gate.py pretooluse",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python hooks/device_gate.py stop",
+        "timeout": 20
+      }
+    ]
   }
 }

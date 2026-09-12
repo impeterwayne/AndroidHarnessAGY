@@ -421,10 +421,31 @@ def is_gradle_launcher(command: str) -> bool:
     return name == "gradle" or name.startswith("gradlew")
 
 
+DEVICE_TASK = re.compile(
+    r"(?<![\w:])(?::[\w:-]+:)?(?:un)?install(?!Dist|ShadowDist)[A-Z]\w*(?![\w])|(?<![\w:])(?::[\w:-]+:)?connected[A-Z]\w*(?![\w])"
+)
+
+
+def device_task(command: list[str]) -> str | None:
+    """Gradle tasks that pick a device themselves, ignoring the andrun lease."""
+    for argument in command[1:]:
+        found = DEVICE_TASK.search(argument)
+        if found:
+            return found.group(0)
+    return None
+
+
 def effective_command(command: list[str]) -> list[str]:
     """Add safe Gradle defaults without overriding an explicit scan choice."""
     if not is_gradle_launcher(command[0]):
         raise ValueError("command must start with a Gradle launcher")
+    task = device_task(command)
+    if task:
+        raise ValueError(
+            f"{task} installs to a device Gradle chooses, which collides with any other "
+            "worktree holding that device; assemble here and install with "
+            "`andrun install --no-build`"
+        )
     effective = list(command)
     try:
         separator = effective.index("--", 1)
@@ -489,6 +510,27 @@ def wait_for_child(child: subprocess.Popen[bytes], sequence: int) -> int:
             timer.cancel()
         for timer in timers:
             timer.join()
+
+
+def launch_command(command: list[str]) -> list[str]:
+    """Resolve a project-local Gradle wrapper to an absolute path.
+
+    Windows CreateProcess does not search the working directory and cannot run a
+    `.bat` by bare name, so `./gradlew` and `gradlew.bat` both fail to launch
+    there even though the file is right beside the build. The recorded command
+    stays as the caller typed it; only the spawn is resolved.
+    """
+    first = Path(command[0])
+    if first.is_absolute():
+        return command
+    names = [first]
+    if os.name == "nt" and first.suffix.lower() not in (".bat", ".cmd"):
+        names.insert(0, first.with_name(first.name + ".bat"))
+    for name in names:
+        candidate = Path.cwd() / name
+        if candidate.is_file():
+            return [str(candidate.resolve())] + command[1:]
+    return command
 
 
 def process_launch_options(platform: str) -> dict[str, Any]:
@@ -630,7 +672,7 @@ def run_locked(root: Path, arguments: argparse.Namespace) -> int:
             try:
                 try:
                     child = subprocess.Popen(
-                        command,
+                        launch_command(command),
                         stdout=output,
                         stderr=subprocess.STDOUT,
                         **process_launch_options(os.name),

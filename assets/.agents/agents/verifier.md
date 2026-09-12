@@ -83,6 +83,11 @@ than falling back to a direct invocation.
 If the wrapper is unavailable and the dispatcher explicitly authorised a direct run, add
 `--console=plain --no-daemon` and say in your report that the output was unbounded.
 
+**Gradle never touches a device.** The wrapper rejects `install*`, `uninstall*`, and
+`connected*` tasks, because those pick a device themselves and would install over whatever
+another worktree is verifying on it. You assemble here and install with `andrun` in floor 3;
+the device is leased separately and the `device-gate` hook holds that lease for you.
+
 ## Scope the build from the diff, not from the brief
 
 The dispatcher's summary of what changed is a claim. Derive the real change set yourself:
@@ -96,14 +101,13 @@ Then pick the narrowest task that still links everything:
 
 | The change set | Aggregate task |
 | :--- | :--- |
-| UI-facing **and** a device is attached | `:app:installDebug` — it depends on `assembleDebug`, so this is one build, not two |
-| Touches `res/`, `AndroidManifest.xml`, or any Gradle file | `:app:assembleDebug` — only assemble runs resource and manifest merge |
+| UI-facing, or touches `res/`, `AndroidManifest.xml`, or any Gradle file | `:app:assembleDebug` — only assemble runs resource and manifest merge, and it produces the APK floor 3 installs |
 | Pure Kotlin, but spans two or more modules | `:app:compileDebugKotlin` — catches the signature break across the boundary |
 | Confined to one leaf module nothing depends on | that module's `compileDebugKotlin` |
 
-Decide the device question **before** you pick the task, so you never build twice. When in
-doubt, assemble. One extra minute here is cheaper than a failure that reaches the human as
-"it built for me."
+The device question does not enter here — floor 3 installs what this task already built.
+When in doubt, assemble. One extra minute here is cheaper than a failure that reaches the
+human as "it built for me."
 
 ## The three floors
 
@@ -129,8 +133,8 @@ writes it was present for.
 
 **When it applies.** The change set is UI-facing — anything under a `ui/`, `screen/`, or
 `compose/` source path, any `@Composable`, any `res/` or navigation or MVI-state change —
-**and** `scrcpy-cli device-list` reports a device. Both conditions, decided before the
-build. A pure domain, data, or Gradle change gets floors 1 and 2 and nothing more; booting
+**and** `scrcpy-cli device-list` reports a device. Both conditions.
+A pure domain, data, or Gradle change gets floors 1 and 2 and nothing more; booting
 an app to look at a screen nobody touched is cost with no signal.
 
 **When there is no device.** Say so, explicitly, as `SKIPPED` in the verdict with the
@@ -142,22 +146,41 @@ a device is a PASS with a named gap, not a clean PASS.
 the output text, never the exit code. The daemon is owned by the `scrcpy-daemon` hook;
 never run `daemon start` or `daemon stop` yourself.
 
+**Installing.** One command, after the assemble in floor 1:
+
+```sh
+andrun install --no-build --launch --json
+```
+
+It resolves the variant APK the wrapper just built and the device this worktree holds.
+`--no-build` is not optional: without it andrun runs Gradle itself, outside the wrapper and
+unbounded. You never pass a device, a serial, or a lease token — the `device-gate` hook
+leases a device on your first device command and merges `-s <serial>` into every
+`scrcpy-cli` and `adb` call you make. If it denies with *every attached device is leased*,
+either queue for one with `andrun queue ensure --wait-timeout 600 --json` and retry, or
+report floor 3 as `SKIPPED` with that reason. Never work around the gate.
+
 **The smoke pass** — always, once installed:
 
 ```sh
 scrcpy-cli device-info
-scrcpy-cli app-start +<applicationId>
 scrcpy-cli screenshot .agents/state/verify/<session>/01-launch.png
 scrcpy-cli ui-dump .agents/state/verify/<session>/01-launch.xml
 ```
+
+`--launch` already started the app, so do not follow the install with
+`app-start` — it force-restarts what is already in front of you and buys nothing.
+Reach for `app-start +<package>` only when you need a deliberate cold start,
+such as after `app-stop` or to reproduce a launch crash.
 
 Read the dump and confirm the foreground package **is** the app under test. A launcher or
 a crash dialog in that XML is a FAIL, however green the build was. On a crash, pull the
 trace with `adb logcat -d -t 400` and quote the top frames plus the causing exception —
 that is what the re-dispatch needs, and a screenshot of a dead app is not it.
 
-Get the `applicationId` from `:app/build.gradle.kts`; do not guess it from the package
-directory structure, which frequently differs from the debug suffix actually installed.
+You never have to guess the `applicationId`: `andrun install --json` reports it as
+`apk.package_name`, read from the APK you just installed. That is the value the dump's
+foreground `package` must match.
 
 **The scenario pass** — when your CONTEXT names one. The dispatcher supplies the screen to
 reach and what should be true there; walk it and capture a screenshot at each assertion.
@@ -198,7 +221,7 @@ your own empty one, not the dispatcher's — always pass `--session` explicitly:
 python .agents/scripts/loop.py checkpoint --session <dispatcher-session-id> \
   --goal-id <id> --status complete \
   --evidence "app links, 3 module test suites green, Home renders on device" \
-  --command "./gradlew :app:installDebug" --exit-code 0 \
+  --command "./gradlew :app:assembleDebug" --exit-code 0 \
   --evidence-path .agents/state/verify/<session>/01-launch.png
 ```
 
@@ -222,7 +245,8 @@ result: PASS | PASS WITH GAPS | FAIL
 </change_set>
 
 <commands>
-- ./gradlew :app:installDebug — exit 0
+- ./gradlew :app:assembleDebug — exit 0
+- andrun install --no-build --launch — exit 0
 - ./gradlew :feature:home:testDebugUnitTest — exit 1
 </commands>
 
@@ -266,7 +290,8 @@ artifact paths must exist on disk.
 - You re-ran an unchanged command after an unchanged failure.
 - You reported a clean PASS on a UI-facing change without a device, instead of
   `PASS WITH GAPS` and a `SKIPPED` reason.
-- You built twice because you decided the device question after `assembleDebug`.
+- You installed with anything other than `andrun install --no-build`, or tried to route
+  around a `device-gate` denial instead of queueing or reporting `SKIPPED`.
 - You inferred the screen works from a green build, trusted `scrcpy-cli`'s exit code, or
   tapped a coordinate you did not read out of a `ui-dump`.
 - You cited a screenshot path that does not exist, or reported a crash without the logcat

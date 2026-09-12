@@ -2,17 +2,18 @@
 """
 aha -- inject the Antigravity Android agent harness into any project.
 
-Almost all of the payload is one directory: `.agents/` (rules, skills, agents,
-hooks, mcp_config.json). The one exception is `AGENTS.md`, which carries the
-delegation rule and must sit at the project root to be read reliably -- it is
-written as a marker-delimited block, so an existing `AGENTS.md` keeps its own
-content and `undo` / `remove` takes back only the block it added.
+Everything that ships lives under `assets/`, and nowhere else: `assets/.agents/`
+(rules, skills, agents, hooks, mcp_config.json) lands at `<target>/.agents/`, and
+`assets/AGENTS.md` carries the delegation rule, which must sit at the project root
+to be read reliably -- it is written as a marker-delimited block, so an existing
+`AGENTS.md` keeps its own content and `undo` / `remove` takes back only the block
+it added.
 
 Installed files are excluded individually in `.git/info/exclude` under a marked
 block on `init` and `update`, leaving any overlapping or custom files in `.agents/`
 tracked by git.
 
-    python aha.py init      [target]  copy .agents/ into [target] (default: .)
+    python aha.py init      [target]  copy assets/ into [target] (default: .)
     python aha.py update    [target]  re-copy, keeping locally edited files
     python aha.py status    [target]  what is installed, and what drifted
     python aha.py undo      [target]  cleanly reverses init, keeping non-AHA files
@@ -36,7 +37,10 @@ import sys
 import time
 from pathlib import Path
 
-SOURCE_ROOT = Path(__file__).resolve().parent
+# The payload is an asset, not this repo's own setup: `assets/` holds the one
+# copy of every file that ships, and this repo has no `.agents/` of its own.
+REPO_ROOT = Path(__file__).resolve().parent
+SOURCE_ROOT = REPO_ROOT / "assets"
 SOURCE_AGENTS = SOURCE_ROOT / ".agents"
 MANIFEST_NAME = ".aha.json"
 LEGACY_MANIFEST_NAME = ".oma.json"
@@ -60,8 +64,6 @@ LEGACY_EXCLUDE_BLOCK_END = "# <!-- oma:exclude:end -->"
 EXCLUDES = (
     "state/*",
     "state",
-    "evals/*",
-    "evals",
     "**/__pycache__/*",
     "**/__pycache__",
     "*.pyc",
@@ -131,7 +133,7 @@ def die(msg: str) -> None:
 def source_commit() -> str:
     try:
         out = subprocess.run(
-            ["git", "-C", str(SOURCE_ROOT), "rev-parse", "--short", "HEAD"],
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, timeout=10,
         )
         if out.returncode == 0:
@@ -508,6 +510,8 @@ def do_install(args, updating: bool) -> int:
     target_agents = target / ".agents"
     if target_agents.resolve() == SOURCE_AGENTS.resolve():
         die("target is the harness source itself")
+    if target == REPO_ROOT:
+        die("the harness repo keeps no .agents/ of its own -- edit assets/ instead")
 
     manifest = read_manifest(target_agents)
     existing = target_agents.exists()
@@ -851,14 +855,14 @@ def add_selection_flags(p: argparse.ArgumentParser) -> None:
 
 def main(argv: list[str]) -> int:
     if not SOURCE_AGENTS.is_dir():
-        die(f"no .agents/ next to {Path(__file__).name} -- run this from the harness repo")
+        die(f"no {SOURCE_AGENTS} -- run this from the harness repo")
 
     parser = argparse.ArgumentParser(
         prog="aha", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_init = sub.add_parser("init", help="copy .agents/ into a project")
+    p_init = sub.add_parser("init", help="copy assets/ into a project")
     p_init.add_argument("target", nargs="?", default=".",
                         help="target directory (default: .)")
     p_init.add_argument("--force", action="store_true",

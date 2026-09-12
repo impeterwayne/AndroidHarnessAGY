@@ -22,6 +22,7 @@
   - [5. Durable Goal Loop Engine](#5-durable-goal-loop-engine)
 - [Figma-to-Jetpack-Compose Workflow](#figma-to-jetpack-compose-workflow)
 - [Developer Workflows and Slash Commands](#developer-workflows-and-slash-commands)
+- [Repository Layout](#repository-layout)
 
 ---
 
@@ -139,6 +140,9 @@ flowchart TD
     PreTool -->|write_to_file / replace_file| RuleGate[rule_gate.py: Kotlin Linter]
     RuleGate -->|No comments / No hardcoded strings| WriteDisk[Disk Write Allowed]
     RuleGate -->|Violation Detected| BlockTool[Denied: Suggests strings.xml / Fix]
+    PreTool -->|run_command touching a device| DeviceGate[device_gate.py: andrun Lease]
+    DeviceGate -->|Lease held or acquired| InjectSerial[Allowed with -s serial injected]
+    DeviceGate -->|Leased by another worktree| BlockDevice[Denied: Queue or report SKIPPED]
     
     LLM --> StopCheck[Stop Hook]
     StopCheck --> StopVerifier[stop_verifier.py: Goal Loop Verifier]
@@ -157,6 +161,12 @@ flowchart TD
   - Intercepts prompts containing keywords (`ultrawork`, `ulw`) and injects rigorous step-by-step verification directives.
 - **`scrcpy-daemon` (`scrcpy_daemon.py` - `PreInvocation` / `Stop`)**:
   - Automatically manages the `scrcpy-cli` daemon lifecycle with reference counting across sessions.
+- **`device-gate` (`device_gate.py` - `PreToolUse` / `Stop`)**:
+  - Makes the `andrun` device lease non-optional, so parallel git worktrees cannot install over each other's verification.
+  - A `run_command` that occupies a device leases one first (`andrun queue ensure`), and the leased serial is injected into `scrcpy-cli` / `adb` via `overwrite` - agents never carry a serial or a lease token.
+  - Denies the forms that pick a device themselves: `adb install`, Gradle `install*` / `connected*` / `uninstall*` tasks, `andrun install` without `--no-build`, and `scrcpy-cli daemon start|stop`.
+  - Releases on `Stop`, refcounted by conversation so a finishing subagent cannot free the device its dispatcher is using. Requires `andrun >= 1.1`.
+  - Lift it for one session: `python .agents/hooks/device_gate.py --off` (`--on`, `--status`, `--self-test`).
 - **`root-write-guard` (`write_guard.py` - `PreToolUse`, enabled)**:
   - Enforcement half of the delegation rule in `AGENTS.md`. Denies source-file writes (`.kt .kts .java .xml .gradle .py .sh .ps1 .json .toml .properties`) from the root session, so code changes must go through `executor`. Docs, notes and plans are never gated.
   - Lift it for one session without editing config: `python .agents/hooks/write_guard.py --off` (`--on`, `--status`).
@@ -299,3 +309,26 @@ Paste Figma Link -> figma-analyzer -> figma-asset-extractor -> figma-compose-dev
 | **Diff Simplification** | Type `/lean-review` | Inspects the current git diff and proposes shorter, stdlib-first implementations. |
 | **Interactive Plan Alignment** | Type `/grill-me` | Conducts a design interview to clarify requirements before writing code. |
 | **Continuous Goal Loop** | Type `/goal <objective>` | Runs an unbroken, evidence-bound goal execution loop. |
+
+---
+
+## Repository Layout
+
+Everything that ships is an asset under `assets/`, copied into whatever project you point
+`aha init` at. This repository keeps **no `.agents/` of its own** — there is exactly one copy
+of every rule, skill, agent and hook, and it lives in `assets/`.
+
+```
+AndroidHarnessAGY/
+├── assets/
+│   ├── .agents/        # the payload: rules, agents, skills, hooks, scripts, mcp_config.json
+│   └── AGENTS.md       # delegation rule, spliced into the target's root AGENTS.md
+├── aha.py              # the installer (stdlib only)
+├── bin/aha.js          # npm shim that finds Python and runs aha.py
+├── evals/              # harness evaluation harness (not shipped)
+├── docs/               # design notes and upstream references (not shipped)
+└── tests/test_aha.py   # install / update / undo round-trip tests
+```
+
+To change the harness, edit the files under `assets/.agents/`, then `aha init` (or `aha update`)
+a scratch project to try them. `aha init` refuses to target this repository itself.

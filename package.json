@@ -11,7 +11,7 @@
   "files": [
     "bin/",
     "aha.py",
-    ".agents/"
+    "assets/"
   ],
   "scripts": {
     "test": "node bin/aha.js list"

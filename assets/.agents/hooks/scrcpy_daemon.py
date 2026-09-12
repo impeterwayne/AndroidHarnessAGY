@@ -36,7 +36,9 @@ import sys
 import time
 from pathlib import Path
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state" / "scrcpy"
+# Machine-global: one scrcpy daemon serves every worktree, so a per-worktree owner
+# refcount would let one session's Stop kill the daemon another session is driving.
+STATE_DIR = Path(os.environ.get("ANDRUN_HOME") or (Path.home() / ".andrun")) / "scrcpy"
 OWNERS_DIR = STATE_DIR / "owners"
 STARTED_FLAG = STATE_DIR / "started-by-hook"
 NO_DEVICE_UNTIL = STATE_DIR / "no-device-until"

@@ -35,7 +35,11 @@ wrapper; never stream, `tee`, paste, or reopen a complete build log.
    `workflow is busy` result as an ownership violation: wait for the active
    run or correct the owner instead of starting another command or finishing
    the workflow concurrently.
-4. For incidental validation, stay in the current agent and run the smallest
+4. The wrapper refuses `install*`, `uninstall*`, and `connected*` tasks. Those
+   select a device themselves, so in a multi-worktree checkout they install
+   over another worktree's run. Assemble instead, and install the resulting
+   APK with `andrun install --no-build`, which honours the device lease.
+5. For incidental validation, stay in the current agent and run the smallest
    owning task with a non-empty verification question:
 
    ```sh
@@ -50,21 +54,21 @@ wrapper; never stream, `tee`, paste, or reopen a complete build log.
    requests that artifact. The summary and ledger redact common credential
    patterns; the retained full log is intentionally raw and can contain
    secrets, so never paste or reopen it as a substitute for the summary.
-5. For a Gradle-centered workflow, create one fresh portable Solver diagnostic
+6. For a Gradle-centered workflow, create one fresh portable Solver diagnostic
    owner. Report its model and reasoning only if the runtime exposes them. Give
    it read-only repository access and ownership of wrapper runs and diagnosis;
    it must not edit source, tests, configuration, or generated project files,
    and it must not delegate Gradle ownership. The parent owns every repository
    edit. If a fresh persistent owner cannot be created, stop rather than make
    the parent run the workflow loop.
-6. Have that owner reuse prior actionable summaries, group warnings and
+7. Have that owner reuse prior actionable summaries, group warnings and
    failures by fingerprint, and return exact file or line evidence plus the
    narrowest next command. Prefer source or compiler failure fingerprints over
    a following generic Gradle failure block. Run an initial broad command only
    when existing targeted evidence cannot answer the recorded question. The
    owner stays available for the whole workflow and verifies each parent
    change with the same wrapper and the narrowest applicable task.
-7. Record `broad` only for aggregate project checks. Give every broad run a
+8. Record `broad` only for aggregate project checks. Give every broad run a
    distinct question that a narrower task cannot answer. The wrapper flags
    repeated commands and primary failure fingerprints; if the primary failure
    repeats, stop the run loop and revise the diagnosis before running another
@@ -73,7 +77,7 @@ wrapper; never stream, `tee`, paste, or reopen a complete build log.
    process tree, extracts bounded diagnostics from the partial log, and makes
    the ledger durable before returning. Only logs still represented by the
    bounded recent-run ledger are retained.
-8. Finish after the requested broad validation passes, or report unresolved
+9. Finish after the requested broad validation passes, or report unresolved
    warning fingerprints and the reason validation cannot continue. Summarize
    the compact ledger, then delete only the wrapper-owned logs:
 

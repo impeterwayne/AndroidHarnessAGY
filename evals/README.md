@@ -25,7 +25,8 @@ iteration-1/
 ```
 
 Deviation from upstream: OMO nests the harness inside the skill under test. Ours
-sits at `.agents/evals/` because the subject is the roster, not one skill.
+sits at the repo root, outside the shipped `assets/` payload, because the subject is
+the roster, not one skill -- and evals are harness development, not part of what ships.
 
 ## Running an arm
 
