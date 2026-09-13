@@ -2,28 +2,41 @@
 trigger: always_on
 ---
 
-# Figma Integration & Workflow Trigger Rule
+# Figma Trigger Rule
 
-Whenever the user's prompt or message contains a **Figma URL** (e.g., `https://www.figma.com/design/...`, `https://www.figma.com/file/...`, `https://figma.com/...`) or specifies a **Figma node-id** / screen name:
+When a message carries a **Figma URL** (`https://www.figma.com/design/...`, `/file/...`)
+or a **node-id** / screen name, the Figma pipeline runs. Do not skip to writing code, and
+do not guess at a design you have not inspected.
 
-## Mandatory Execution Protocol:
+## Route, do not improvise
 
-1. **AUTOMATIC SKILL ACTIVATION**:
-   - Immediately activate and follow the `figma-design-analyzer` skill (and `figma2compose` for UI implementation).
-   - Do NOT skip to writing code or making guesses without inspecting the Figma node.
+| Request | Entry point |
+| :--- | :--- |
+| Spec, analysis, or a visual diff | `figma-analyzer` → skill `figma-design-analyzer` |
+| Icons, images, or design tokens only | `figma-asset-extractor` |
+| Build or restyle a screen | the full pipeline, sequenced by `orchestrator` |
 
-2. **PARSE FIGMA URL & NODE ID**:
-   - Extract the file key and `node-id` parameter from the URL.
-   - Note: URLs encode colons as `%3A` or `-` (e.g. `node-id=123%3A456` or `node-id=123-456`). Convert this to the standard `123:456` format for MCP tool queries.
+The stages, their ordering, and the re-dispatch rules live in **`.agents/agents/orchestrator.md`
+→ The Figma pipeline**. The MCP call sequence and budget live in the
+`figma-design-analyzer` skill. Neither is restated here — one copy of each, or they drift.
 
-3. **EXECUTE FIGMA MCP CALLS (`figma_mcp_android`)**:
-   - Query the target node using `get_design_context` (use `depth: 2` or `3`, `detail: "compact"`, `dedupe_components: true` to conserve tokens).
-   - Extract typography and text using `scan_text_nodes`.
-   - Extract design tokens, color palette, and spacing using `get_styles` / `export_tokens`.
-   - Extract prototype interactions using `get_reactions`.
-   - For simple vector icons: convert SVG to VectorDrawable XML in `res/drawable/ic_*.xml` via `convert_svg_to_android_drawable`.
-   - For raster illustrations/graphics/banners: export directly to `app/src/main/assets/images/` via `save_screenshots`.
+## The two things that are always true
 
-4. **OUTPUT & IMPLEMENTATION**:
-   - For new screens / specs: generate `docs/<feature>/figma-spec.md` or present the UI structure.
-   - For UI implementation: follow `figma2compose` (using `com.genesys.core.designsystem.theme.AppTheme` design tokens, design system components, and Skydoves Landscapist `GlideImage`), ensuring strict adherence to the extracted tokens, dimensions, and colors while preserving existing ViewModel/business logic.
+1. **Convert the node-id.** URLs encode the colon as `%3A` or `-`. `node-id=123-456` is
+   `123:456` for every MCP call.
+2. **Never call `get_document`.** A whole Figma file exhausts the context window and ends
+   the task. Bounded `get_design_context` only.
+
+## The artefacts
+
+Each stage hands the next a file, and each file has one owner:
+
+- `docs/<feature>/figma-spec.md` — stage 1. Shape fixed by
+  `.agents/skills/figma-design-analyzer/references/figma-spec-template.md`.
+- `docs/<feature>/figma/ref-*.png` — stage 1. The reference images floor 4 compares against.
+- `docs/<feature>/figma-assets.json` — stage 2. Schema in
+  `.agents/skills/figma-asset-extractor/references/asset-manifest.md`.
+
+Implementation follows `.agents/rules/android.md`: `AppTheme` tokens, design system
+components, `stringResource`, Landscapist `GlideImage`, and existing ViewModel and
+navigation contracts left intact.

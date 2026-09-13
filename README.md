@@ -88,7 +88,7 @@ Tailor the harness payload to your project's needs using `--profile`:
 | :--- | :---: | :---: | :---: | :--- |
 | **`full`** *(default)* | All 42 | All 8 | All 3 | Complete Android, Figma, MVI, and Rigour harness |
 | **`android`** | 39 | 5 | 2 | Pure Android app development (Clean Arch + Orbit MVI + Compose) |
-| **`figma`** | 7 | 5 | 3 | Design-to-code sprint focusing on UI & asset generation |
+| **`figma`** | 15 | 6 | 3 | Design-to-code sprint: spec, assets, Compose, and on-device design conformance |
 | **`minimal`** | 10 | 5 | 1 | Lean engineering, code reviews, and basic goal loops |
 
 ```bash
@@ -182,9 +182,9 @@ flowchart TD
 | **`oracle`** | Architectural Judge | Consultative deep-thinker for reviewing architecture, edge cases, and design compliance. |
 | **`executor`** | Implementer | Every code change: single-file fixes through multi-module features, refactors and migrations. Holds the shell, so it compiles and tests what it writes. |
 | **`verifier`** | Build & Device Gate | Read-only on the repo. Runs the one aggregate Gradle build over a converged change set — per-module compiles do not prove `:app` links — then, for UI work, `installDebug` and drives the real screen via `scrcpy-cli` for launch, screenshots, and a named scenario. Holds Gradle exclusively, so a fan-out ends with it rather than with N concurrent builds in one worktree. |
-| **`figma-analyzer`** | Design Specifier | Analyzes layout hierarchy, padding, typography, colors, and prototype reactions. |
-| **`figma-asset-extractor`** | Asset Pipeline | Converts Figma SVGs to Android VectorDrawables (`ic_*.xml`) and exports raster assets. |
-| **`figma-compose-developer`** | UI Developer | Implements stateless Compose screens and previews matching Figma nodes. |
+| **`figma-analyzer`** | Design Specifier | Stage 1. Component inventory across frames, Auto-Layout mapped to Compose, variant and state matrix, typography, token gaps, prototype reactions. Writes `figma-spec.md` to a fixed template plus a reference PNG per frame. |
+| **`figma-asset-extractor`** | Asset Pipeline | Stage 2. Converts Figma SVGs to VectorDrawables (`ic_*.xml`), exports raster assets, snaps or adds design tokens by a tolerance policy, and records what actually landed in `figma-assets.json`. |
+| **`figma-compose-developer`** | UI Developer | Stage 3. Stateless Compose screens, Orbit MVI contract, and one `@Preview` per state the design defines. Resolves every resource name against the stage 2 manifest. |
 
 ---
 
@@ -204,8 +204,8 @@ flowchart TD
 - [`styles`](file:///.agents/skills/styles/SKILL.md): Design system tokens and dynamic styling in Compose.
 
 #### Figma to Code
-- [`figma-design-analyzer`](file:///.agents/skills/figma-design-analyzer/SKILL.md): Deep structural inspection of Figma URLs and node IDs.
-- [`figma-asset-extractor`](file:///.agents/skills/figma-asset-extractor/SKILL.md): Automated SVG-to-VectorDrawable conversion and token extraction.
+- [`figma-design-analyzer`](file:///.agents/skills/figma-design-analyzer/SKILL.md): Deep structural inspection of Figma URLs and node IDs, against the canonical [spec template](file:///.agents/skills/figma-design-analyzer/references/figma-spec-template.md).
+- [`figma-asset-extractor`](file:///.agents/skills/figma-asset-extractor/SKILL.md): SVG-to-VectorDrawable conversion, token snap policy, and the [asset manifest](file:///.agents/skills/figma-asset-extractor/references/asset-manifest.md).
 - [`figma2compose`](file:///.agents/skills/figma2compose/SKILL.md): Full Figma design-to-Compose screen implementation.
 
 #### Performance & Tooling
@@ -251,7 +251,7 @@ The delegation rule sits in **`AGENTS.md`** at the project root; the domain rule
 
 2. **`figma.md`**:
    - Triggers automatically when a Figma URL (`https://www.figma.com/design/...`) or node ID is detected.
-   - Mandates extraction of tokens, Auto-Layout parameters, typography, and vector icons before writing code.
+   - Routes to the pipeline and names the artefacts each stage owns. The stage ordering lives in `orchestrator.md` and the MCP budget in the analyzer skill — one copy of each, so they cannot drift.
 
 3. **`lean.md`**:
    - Follows the Decision Ladder: YAGNI -> Reuse First -> Kotlin Stdlib/KTX -> Native Compose -> Shortest Idiomatic Form.
@@ -280,22 +280,24 @@ The **`stop-verifier` hook** watches this ledger and prevents the agent from fin
 
 ## Figma-to-Jetpack-Compose Workflow
 
-Convert any Figma design into clean, theme-aware Compose code:
+Convert any Figma design into clean, theme-aware Compose code. Four stages, each handing the next a **file** rather than a claim:
 
 ```
-Paste Figma Link -> figma-analyzer -> figma-asset-extractor -> figma-compose-developer -> rule_gate Check
+Figma link
+  -> figma-analyzer          -> docs/<feature>/figma-spec.md + figma/ref-*.png
+  -> figma-asset-extractor   -> docs/<feature>/figma-assets.json + res/ + tokens
+  -> figma-compose-developer -> the Kotlin
+  -> verifier (floor 4)      -> <design> verdict: measured vs. designed
 ```
 
 1. **Provide a Figma URL**:
    > *"Implement the Profile screen from https://www.figma.com/design/AbCdEf12345/AppUI?node-id=102-456"*
-2. **Analysis & Extraction**:
-   - The harness automatically queries Figma MCP.
-   - Extracts typography, colors, padding, and constraints.
-   - Converts vector icons directly to `res/drawable/ic_*.xml`.
-3. **Compose Generation**:
-   - Generates stateless `@Composable` screens and preview components.
-   - Connects UI state to Orbit MVI contracts (`ProfileUiState`, `ProfileEvent`).
-   - Verifies against design tokens in `com.genesys.core.designsystem.theme.AppTheme`.
+2. **Stage 1 — spec**: bounded MCP queries only (`get_document` is a hard gate). Produces a component inventory across every frame so a shared card is built once, a variant matrix so loading, empty, error, and dark are not discovered late, token gaps with their nearest existing token, and a reference PNG per frame.
+3. **Stage 2 — assets and tokens**: icons to `res/drawable/ic_*.xml`, raster artwork exported, and each token gap either snapped to an existing token within tolerance or added. Every deviation from the spec is recorded in `figma-assets.json`, which is what stage 3 resolves names against.
+4. **Stage 3 — Compose**: stateless `@Composable` screens wired to Orbit MVI contracts, `AppTheme` tokens throughout, and one `@Preview` per state the design defines.
+5. **Stage 4 — device conformance**: `verifier` installs the APK, drives to each screen, and measures the `ui-dump` bounds against the spec. A screen that compiles, launches, and has the wrong gutter fails here and nowhere else.
+
+Deltas route back to the one stage that owns them — spacing and text to stage 3, a missing drawable to stage 2, a wrong spec to stage 1.
 
 ---
 

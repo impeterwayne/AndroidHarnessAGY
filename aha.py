@@ -92,10 +92,13 @@ PROFILES: dict[str, dict[str, list[str]]] = {
         "skills": [
             "figma-asset-extractor", "figma-design-analyzer", "figma2compose",
             "image-loading-landscapist", "styles", "lean", "lean-review",
+            "android-code-indexer", "android-resource-policy",
+            "compose-component-design", "compose-state-and-effects",
+            "orbit-mvi-feature-builder", "gradle-run", "testing-setup", "scrcpy",
         ],
         "agents": [
             "explore", "figma-analyzer", "figma-asset-extractor",
-            "figma-compose-developer", "orchestrator",
+            "figma-compose-developer", "orchestrator", "verifier",
         ],
         "rules": ["figma", "android", "lean"],
     },

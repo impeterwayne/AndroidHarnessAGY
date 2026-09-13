@@ -29,10 +29,10 @@ describing the diff you would apply, stop and delegate it instead.
 | `explore` | "Where is X?", "which files touch Y?", cross-module pattern discovery. Fire 2–3 in parallel for broad questions | cheap |
 | `oracle` | Architecture trade-offs, review of finished work, debugging after 2+ failed attempts | expensive |
 | `executor` | Every code change — one line or one feature. Holds the shell, so it proves what it wrote | medium |
-| `verifier` | The aggregate build once a wave of `executor`s has converged, plus install-and-drive on a real device for UI-facing work. Read-only on the repo, and the only agent allowed to hold Gradle | medium |
-| `figma-analyzer` | Stage 1 of Figma work — read-only inspection, writes `docs/<feature>/figma-spec.md` | expensive |
-| `figma-asset-extractor` | Stage 2 — SVG to `res/drawable/ic_*.xml`, tokens into `:core:designsystem` | medium |
-| `figma-compose-developer` | Stage 3 — Compose UI from the spec, MVI contract, previews | expensive |
+| `verifier` | The aggregate build once a wave of `executor`s has converged, plus install-and-drive on a real device for UI-facing work, plus stage 4 of the Figma pipeline when you hand it a spec. Read-only on the repo, and the only agent allowed to hold Gradle | medium |
+| `figma-analyzer` | Stage 1 of Figma work — read-only inspection, writes `docs/<feature>/figma-spec.md` and the reference images | expensive |
+| `figma-asset-extractor` | Stage 2 — SVG to `res/drawable/ic_*.xml`, tokens into `:core:designsystem`, writes `figma-assets.json` | medium |
+| `figma-compose-developer` | Stage 3 — Compose UI from the spec, MVI contract, a preview per variant row | expensive |
 
 Dispatch with `invoke_subagent`, passing `TypeName` = the agent's `name:`. The
 `Subagents` argument is an array, so N parallel spawns are one call.
@@ -104,22 +104,40 @@ catches the crash but not the wrong layout.
 
 ### The Figma pipeline
 
-The three Figma agents are staged, and none of them can delegate — only you hold
-`invoke_subagent`, so you are the one who sequences them:
+Four stages, none of which can delegate — only you hold `invoke_subagent`, so you are the
+one who sequences them. Each stage hands the next a **file**, not a claim:
+
+| Stage | Agent | Writes | Read by |
+| :--- | :--- | :--- | :--- |
+| 1 | `figma-analyzer` | `docs/<feature>/figma-spec.md` + `figma/ref-*.png` | 2, 3, 4 |
+| 2 | `figma-asset-extractor` | `docs/<feature>/figma-assets.json`, `res/`, tokens | 3, 4 |
+| 3 | `figma-compose-developer` | the Kotlin | 4 |
+| 4 | `verifier` floor 4 | the `<design>` verdict block | you |
 
 1. `figma-analyzer` alone first. Nothing downstream can start without the spec, and the
    design is the biggest thing that enters any context — that is why it gets its own.
    Fire an `explore` alongside it to locate the existing screen files.
+   **Read the spec yourself before dispatching stage 2 or 3.** §3 (component inventory) and
+   §5 (variant matrix) are where a thin analysis shows, and a thin spec becomes three
+   rebuilt components and an unimplemented empty state. Send stage 1 back rather than
+   letting stage 3 discover it.
 2. Then `figma-asset-extractor` and `figma-compose-developer` **in parallel** — one call,
    since `Subagents` is an array. They touch disjoint files (`res/` and
-   `:core:designsystem` versus the feature module), and stage 3 verifies the asset names
-   against the spec rather than against the files, so it does not need stage 2 finished.
-3. Verify stage 3's build evidence. If a drawable or token name mismatched, re-dispatch
-   the *one* stage that got it wrong, quoting the mismatch.
+   `:core:designsystem` versus the feature module), and stage 3 resolves asset names
+   against the manifest stage 2 writes last, so a mismatch comes back as a named gap
+   rather than an unresolved symbol.
+3. Then `verifier` alone, with **the spec path, the reference images, and the navigation
+   path stage 3 reported** in CONTEXT. Without those three, floor 4 does not run and the
+   layout goes unchecked — a green build says nothing about whether the screen matches.
+4. Route the verdict by kind. A `<design>` delta on spacing, text, or a content description
+   goes back to **stage 3** with the measurement quoted. A missing or misnamed drawable, or
+   a token conflict, goes back to **stage 2**. An element absent from §4 that neither stage
+   was asked for goes back to **stage 1** — the spec was wrong. Re-dispatch the one stage
+   that owns it; never the whole pipeline.
 
-Skip stage 1 when the spec already exists from this session, and skip stage 2 when the
-spec lists no new assets or tokens. Re-inspecting a design or re-exporting icons already
-on disk is pure cost. For a spec-only or visual-diff request, stage 1 is the whole job.
+Skip stage 1 when the spec already exists from this session, and stage 2 when the spec
+lists no new assets or tokens. Re-inspecting a design or re-exporting icons already on
+disk is pure cost. For a spec-only or visual-diff request, stage 1 is the whole job.
 
 ## Phase 2 — the delegation prompt
 
