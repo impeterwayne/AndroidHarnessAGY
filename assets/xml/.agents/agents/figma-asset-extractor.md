@@ -72,7 +72,7 @@ drawable is worse than waste — it splits the icon set. For each entry on the l
 ## Raster artwork
 
 Illustrations, banners, hero images, and multi-colour artwork are not vectors. Export them
-as raster and record which render path the implementer should use — `painterResource` for
+as raster and record which render path the implementer should use — `app:srcCompat` for
 bundled assets, `GlideImageView` for anything remote. Do not attempt to convert
 complex artwork to a VectorDrawable.
 

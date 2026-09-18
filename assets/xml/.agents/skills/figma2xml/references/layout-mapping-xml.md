@@ -101,9 +101,9 @@ The colour goes in `android:textColor` for a plain single state; move it to the
 | a flat 1–2 colour icon | `app:srcCompat="@drawable/ic_<name>"`, tinted with `app:tint` |
 | an icon that is also a tap target | wrap or size to at least 48dp; the glyph stays 24dp |
 | raster artwork shipped with the app | `app:srcCompat="@drawable/img_<name>"` |
-| a remote or dynamic image | `GlideImageView` with `app:glidePlaceholder` / `glideError` — see `image-loading-glide` |
-| an image with a corner radius | `ShapeImageView` for the frame **and** Glide's `RoundedCorners` for the bitmap |
-| a circular avatar | `app:glideCircle="true"` |
+| a remote or dynamic image | `com.genesys.glideimageview.GlideImageView` with `app:glideSrc`, `app:glidePlaceholder` / `glideError` — see `image-loading-glide` |
+| an image with a corner radius | `GlideImageView` with `app:glideRadius` (or `ShapeImageView` frame + `GlideImageView`) |
+| a circular avatar | `GlideImageView` with `app:glideCircle="true"` |
 | `scaleMode: FILL` | `android:scaleType="centerCrop"` |
 | `scaleMode: FIT` | `android:scaleType="fitCenter"` |
 

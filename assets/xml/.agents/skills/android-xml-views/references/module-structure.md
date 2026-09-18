@@ -68,6 +68,7 @@ dependencies {
     implementation(libs.epoxy)
     ksp(libs.epoxyProcessor)
     implementation(libs.glide)
+    implementation(libs.glide.image.view)
     implementation(libs.shape.view)
 }
 ```
@@ -104,7 +105,7 @@ app/src/main/java/com/<app>/
   ui/bases/ext/       ActivityExt, ContextExt, ViewExt, ImageViewExt, ClickExt, StringExt
   ui/component/<screen>/   the screen's Activity/Fragment, ViewModel, Contract
   ui/component/<screen>/epoxy/  its controller and item models
-  ui/component/custom/     custom views (GlideImageView, …)
+  ui/component/custom/     project-specific custom views (if any)
   ui/component/dialog/     dialogs and sheets
   data/               repositories, DAOs, DTOs
   di/                 Hilt modules

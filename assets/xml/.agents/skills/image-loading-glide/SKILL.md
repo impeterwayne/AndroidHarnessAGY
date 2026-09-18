@@ -1,150 +1,146 @@
 ---
 name: image-loading-glide
-description: Use when loading images into Android Views with Glide (com.github.bumptech.glide) in an XML-layout project - the declarative GlideImageView custom view (app:glideSrc, glidePlaceholder, glideError, glideRadius, glideCircle, glideCrossFade), the ImageView.loadImage extension, transformations, clearing in an Epoxy model's unbind, and cache strategy. The XML-track counterpart to Landscapist GlideImage.
+description: Use when loading images into Android Views with GlideImageView (com.github.impeterwayne:GlideImageView, package com.genesys.glideimageview) in an XML-layout project - the declarative GlideImageView custom view with instant Layout Editor preview (app:glideSrc, glidePlaceholder, glideError, glideRadius, glideCircle, glideCrossFade, glideCrossFadeDuration, glideCacheType, glideSkipMemoryCache), shape transformations (Shape.Circle, Shape.RoundedCorners, Squircle, Border, Grayscale), caching strategies, programmatic loading (load, loadAsset, clear), process-wide defaults, and extensions (ModelResolver, Shape, RequestDecorator). The XML-track counterpart to Landscapist GlideImage.
 ---
 
 # Glide image loading for XML layouts
 
-Glide is the only image loader in this project. Every remote URL, file path, `Uri`,
-resource id and byte array goes through it. A manual `BitmapFactory.decodeStream` into
-`setImageBitmap`, or a second loader alongside it, is a defect.
+`GlideImageView` (`com.github.impeterwayne:GlideImageView`, package `com.genesys.glideimageview.GlideImageView`) is the standard declarative image loader for Android XML layouts. Every remote URL, asset path, file path, `Uri`, and drawable resource goes through it.
 
-There are two call shapes, in order of preference.
-
-## 1. `GlideImageView` — the layout says what it loads
-
-A declarative `AppCompatImageView` subclass. The source and its options live in the
-layout, so a static image needs no binding code at all, and the Studio preview renders
-asset-backed sources.
-
-```xml
-<com.<app>.ui.component.custom.GlideImageView
-    android:id="@+id/imgThumb"
-    android:layout_width="96dp"
-    android:layout_height="96dp"
-    android:scaleType="centerCrop"
-    app:glidePlaceholder="@drawable/ic_thumb_placeholder"
-    app:glideError="@drawable/ic_thumb_error"
-    app:glideRadius="@dimen/radius_12"
-    app:glideCrossFade="true" />
-```
-
-```kotlin
-holder.binding.imgThumb.glideSrc = item.thumbnailUrl
-```
-
-| Attribute | Effect |
-| :--- | :--- |
-| `app:glideSrc` | source string — http(s), content, file, android.resource, or a bare path treated as `file:///android_asset/…` |
-| `app:glidePlaceholder` | drawable shown while loading |
-| `app:glideError` | drawable shown on failure |
-| `app:glideRadius` | corner radius; combines with the scale transformation implied by `scaleType` |
-| `app:glideCircle` | circle crop; wins over `glideRadius` |
-| `app:glideCrossFade` | cross-fade in, instead of `dontAnimate()` |
-
-Setting `glideSrc` to null or blank clears the view and cancels the request. Options are
-an immutable `Options` data class — `updateOptions { copy(isCircle = true) }` triggers a
-reload; assigning the same value does not.
-
-If the project has no such view yet, add it once in the shared UI module rather than
-open-coding Glide chains per screen. The implementation is in
-[references/glide-image-view.md](./references/glide-image-view.md) — copy it, adjust the
-package and `R.styleable` name, and declare the `declare-styleable` block it needs.
-
-## 2. `ImageView.loadImage(...)` — the extension
-
-For an ordinary `ImageView` already in a layout, or a load whose options are computed.
-
-```kotlin
-fun ImageView.loadImage(
-    source: Any?,
-    @DrawableRes placeholder: Int = 0,
-    @DrawableRes error: Int = 0,
-    radiusPx: Int = 0,
-    circle: Boolean = false,
-    skipCache: Boolean = false
-)
-```
-
-Full implementation in [references/glide-image-view.md](./references/glide-image-view.md).
-
-## 3. A raw `Glide.with(...)` chain
-
-Only when neither of the above fits — an `asBitmap()` load, a custom `Target`, a
-`RequestListener` for analytics. Even then, keep the chain at the binding site and do not
-spread it across helpers.
-
-```kotlin
-Glide.with(this)
-    .asBitmap()
-    .load(uri)
-    .into(object : CustomTarget<Bitmap>() { … })
-```
-
-## Rules that are not negotiable
-
-**Placeholder and error, always.** A load with neither is a blank box on a slow network
-and a blank box forever on a 404. If the design does not give one, use the neutral
-placeholder the project already has.
-
-**Scope `Glide.with()` to the narrowest lifecycle available** — `Glide.with(view)` inside
-an adapter, `Glide.with(fragment)` inside a Fragment. `Glide.with(context)` with an
-application context keeps the request alive past the screen and leaks the target.
-
-**Clear in the Epoxy model's `unbind()`.** This is the single most common Glide bug in a
-list:
-
-```kotlin
-override fun ItemDocumentBinding.bind() {
-    imgThumb.glideSrc = document?.thumbnailUrl
-}
-
-override fun ItemDocumentBinding.unbind() {
-    Glide.with(imgThumb).clear(imgThumb)
-}
-```
-
-Without it, a slow request completes into a holder that now shows a different row.
-`GlideImageView` also cancels its own request when `glideSrc` is reassigned, including to
-null — but `unbind()` is what covers the holder leaving the screen entirely.
-
-**Round with a transformation, not a crop tool.** `RoundedCorners(px)` combined with the
-scale transformation your `scaleType` implies (`CenterCrop`, `FitCenter`,
-`CenterInside`) — a `RoundedCorners` on its own silently drops the scaling and the image
-distorts. `CircleCrop()` for avatars. Never ship a pre-rounded PNG. Where the frame also
-needs a border, put a `ShapeImageView` around it (`shape-view` skill) and keep the bitmap
-transformation too — the frame alone leaves square bitmap corners showing.
-
-**Size the request.** Loading a 4000 px photo into a 96 dp thumbnail wastes memory even
-with `centerCrop`. `override(width, height)` when the view has no fixed size at request
-time.
-
-**Cache deliberately.** `DiskCacheStrategy.ALL` is the right default for remote content.
-Use `DiskCacheStrategy.NONE` + `skipMemoryCache(true)` only for content that genuinely
-changes behind a stable URL — a re-cropped avatar, a regenerated thumbnail — and say why
-at the call site by naming the helper `loadImageNoCache` rather than by a comment.
-
-**`dontAnimate()` in lists** unless the design asks for a cross-fade. A cross-fade on every
-scroll-in reads as flicker.
+A manual `BitmapFactory.decodeStream` into `setImageBitmap`, or a second image loader alongside Glide, is a defect.
 
 ## Setup
 
 ```gradle
-implementation "com.github.bumptech.glide:glide:$glide_version"
-ksp "com.github.bumptech.glide:ksp:$glide_version"
+// settings.gradle — repositories
+maven { url 'https://jitpack.io' }
+
+// module build.gradle
+implementation 'com.github.impeterwayne:GlideImageView:1.0.0'
 ```
 
-The `ksp`/annotation-processor artifact is only needed for `@GlideModule` generated API.
-If the project has no `AppGlideModule`, the runtime artifact alone is enough — do not add
-a processor to a module that will not use it.
+Requires `minSdk` 23+, `compileSdk` 36, Java 17. In projects using version catalogs, reference `libs.glide.image.view`.
+
+## 1. `GlideImageView` — the layout says what it loads
+
+A declarative `AppCompatImageView` subclass. The source and its options live directly in the layout, with **instant live preview inside the Android Studio Layout Editor** for drawables and assets:
+
+```xml
+<com.genesys.glideimageview.GlideImageView
+    android:id="@+id/imgThumb"
+    android:layout_width="96dp"
+    android:layout_height="96dp"
+    android:scaleType="centerCrop"
+    app:glideSrc="images/banner.webp"
+    app:glidePlaceholder="@drawable/ic_thumb_placeholder"
+    app:glideError="@drawable/ic_thumb_error"
+    app:glideRadius="@dimen/radius_12"
+    app:glideCrossFade="true"
+    app:glideCacheType="automatic" />
+```
+
+| Attribute | Effect |
+| :--- | :--- |
+| `app:glideSrc` | source string or reference — `@drawable/...`, asset path `images/...`, remote URL `https://...`, file, or URI |
+| `app:glidePlaceholder` | drawable shown while loading (and in Layout Editor for remote URLs) |
+| `app:glideError` | drawable shown on failure |
+| `app:glideRadius` | corner radius in dp/dimen; combines with the scale transformation implied by `scaleType` |
+| `app:glideCircle` | circle crop; wins over `glideRadius` |
+| `app:glideCrossFade` | cross-fade transition on image load |
+| `app:glideCrossFadeDuration` | cross-fade animation duration in ms (default: 300ms) |
+| `app:glideCacheType` | disk cache strategy: `all`, `none`, `data`, `resource`, `automatic` |
+| `app:glideSkipMemoryCache` | boolean: bypasses Glide's in-memory bitmap pool/cache |
+
+### Live Layout Editor Preview
+- **Drawable resources (`@drawable/...`)**: Direct references to app drawables render immediately in design mode.
+- **Asset paths (`images/...`)**: Decoded live from `src/main/assets/` during edit mode (`isInEditMode`), so you see actual design assets right inside Android Studio without launching an emulator.
+- **Remote URLs (`https://...`)**: Safely display `app:glidePlaceholder` in edit mode.
+
+## 2. Programmatic Loading (Kotlin)
+
+When sources change dynamically at runtime (in adapters, view holders, or response callbacks):
+
+```kotlin
+// Load remote URL, resource id, or domain model
+binding.imgThumb.load(item.thumbnailUrl)
+
+// Load asset path directly
+binding.imgThumb.loadAsset("images/banner.webp")
+
+// Clear in-flight load and reset image
+binding.imgThumb.clear()
+```
+
+### Composable Shapes & Runtime Options
+
+```kotlin
+// Apply shape transformations
+binding.imgThumb.shapes = listOf(
+    Shape.RoundedCorners(resources.getDimensionPixelSize(R.dimen.radius_12))
+)
+
+// Mutate options cleanly
+binding.imgThumb.updateOptions {
+    copy(crossFade = true, crossFadeDurationMs = 200)
+}
+```
+
+## 3. The Reference Material
+
+| Read this | For |
+| :--- | :--- |
+| [references/glide-image-view.md](./references/glide-image-view.md) | full XML attribute catalog, Kotlin API (`load`, `loadAsset`, `clear`), Epoxy list integration, and legacy `ImageView.loadImage(...)` helper |
+| [references/extensions.md](./references/extensions.md) | architecture and extension points: custom `ModelResolver` (domain models, auth headers), composable `Shape`s, `RequestDecorator`, `RequestManagerFactory`, `OnLoadListener`, and subclassing |
+| [references/caching.md](./references/caching.md) | caching policy (APK resources bypass cache by default), XML cache attributes, `CacheType` enum, cache invalidation via `ObjectKey` / `ApplicationVersionSignature`, and precedence order |
+
+## 4. Process-Wide Defaults & Telemetry
+
+Configure standard placeholders, error states, or telemetry once process-wide via `GlideImageViewConfig` in `Application.onCreate()`:
+
+```kotlin
+GlideImageViewConfig.defaults = ImageOptions(
+    placeholder = R.drawable.ic_thumb_placeholder,
+    error = R.drawable.ic_thumb_error,
+    crossFade = true
+)
+
+GlideImageViewConfig.listeners += object : OnLoadListener {
+    override fun onLoadFailed(view: GlideImageView, error: GlideException?) {
+        // App-wide telemetry or error reporting
+    }
+}
+```
+
+## Rules that are not negotiable
+
+**Placeholder and error, always.** A load with neither is a blank box on a slow network and a blank box forever on a 404. If the design does not specify one, use the neutral placeholder the project already has.
+
+**Clear in the Epoxy model's `unbind()`.** This is the single most common Glide bug in a list:
+
+```kotlin
+override fun ItemDocumentBinding.bind() {
+    imgThumb.load(document?.thumbnailUrl)
+}
+
+override fun ItemDocumentBinding.unbind() {
+    imgThumb.clear()
+}
+```
+
+Without `unbind()`, an in-flight request on a recycled view completes after reuse and paints the previous row's image over the new row. Calling `imgThumb.clear()` cancels the pending Glide request immediately.
+
+**Packaged APK drawables are not cached by default.** When loading `@drawable/...`, `@mipmap/...`, or `android.resource://`, `GlideImageView` automatically uses `DiskCacheStrategy.NONE` and `skipMemoryCache(true)` because the bytes already live inside the APK. Do not force disk caching on packaged assets unless you explicitly require it.
+
+**Round with a transformation, not a pre-cut asset.** Use `app:glideRadius` or `app:glideCircle` (or `Shape.RoundedCorners` / `Shape.Circle`). `GlideImageView` ensures the scale transformation from `scaleType` is preserved so the bitmap does not distort. Where the frame also requires borders or drop shadows, wrap with a `ShapeImageView` (`shape-view` skill).
+
+**`dontAnimate()` in lists unless crossfade is specified.** Crossfading on every scroll-in creates visual flicker in fast-scrolling lists.
 
 ## Checklist
 
+- [ ] Dependency `com.github.impeterwayne:GlideImageView:1.0.0` is present.
 - [ ] Every load declares a placeholder and an error drawable.
-- [ ] `Glide.with()` is scoped to the view or fragment, never an application context.
-- [ ] Epoxy item models clear in `unbind()`.
-- [ ] Rounded loads combine `RoundedCorners` with the scale transformation.
-- [ ] No second image loader, and no manual bitmap decode.
-- [ ] Meaningful images carry an `android:contentDescription`; decorative ones are
-      explicitly `@null`.
-- [ ] Cache strategy is the default unless there is a stated reason.
+- [ ] Epoxy item models call `imgThumb.clear()` in `unbind()`.
+- [ ] Rounded images use `app:glideRadius` or `app:glideCircle` rather than pre-rounded PNGs.
+- [ ] Packaged APK drawables rely on the default zero-overhead cache bypass.
+- [ ] No second image loader, and no manual `BitmapFactory` decode.
+- [ ] Meaningful images carry an `android:contentDescription`; decorative ones are `@null`.

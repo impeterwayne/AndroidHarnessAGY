@@ -60,22 +60,23 @@ Details and recipes: skill `shape-view`.
 
 ## 3. Glide is the image API
 
-- Remote URLs, file paths, `Uri`s and byte arrays load through **Glide**
+- Remote URLs, asset paths, file paths, `Uri`s and byte arrays load through **Glide**
   (`com.github.bumptech.glide`) — never `setImageBitmap` off a manual decode, never a
   second loader alongside it.
-- Prefer the project's `GlideImageView` (declarative: `app:glideSrc`,
+- **`GlideImageView` (`com.github.impeterwayne:GlideImageView`, `com.genesys.glideimageview.GlideImageView`) is the image view**:
+  use declarative `app:glideSrc` (`@drawable/...`, `images/...`, or remote URL),
   `app:glidePlaceholder`, `app:glideError`, `app:glideRadius`, `app:glideCircle`,
-  `app:glideCrossFade`) so the layout states what it loads. Where a binding-site call is
-  clearer, use the `ImageView.loadImage(...)` extension rather than an inline
-  `Glide.with(...)` chain.
+  `app:glideCrossFade`, `app:glideCacheType`, and `app:glideSkipMemoryCache` so the layout states
+  what it loads. Asset paths and drawables render live in Android Studio Layout Editor preview.
+- Where programmatic loading is needed, use `view.load(...)`, `view.loadAsset(...)`, or
+  `view.clear()` rather than open-coding `Glide.with(...)` chains. For existing plain `ImageView`s,
+  use the `ImageView.loadImage(...)` extension.
 - Every load declares a `placeholder` and an `error`. A load with neither is a blank box
   on a slow network.
-- In an Epoxy item model, load in `bind()` and clear in `unbind()`
-  (`Glide.with(view).clear(view)`). An uncleared request writes the previous row's image
-  into a recycled holder.
-- Corner radii on a loaded image come from Glide's `RoundedCorners`/`CircleCrop`
-  transformation (combined with the scale transformation), or from a `ShapeImageView`
-  around it — never from a hand-cut PNG.
+- In an Epoxy item model, load in `bind()` (`imgThumb.load(...)`) and clear in `unbind()`
+  (`imgThumb.clear()`). An uncleared request writes the previous row's image into a recycled holder.
+- Corner radii on a loaded image come from `app:glideRadius` / `app:glideCircle` (or Glide's
+  `RoundedCorners`/`CircleCrop`), or from a `ShapeImageView` around it — never from a hand-cut PNG.
 
 Details: skill `image-loading-glide`.
 

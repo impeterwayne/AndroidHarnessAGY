@@ -94,7 +94,7 @@ for every icon and image. An icon with no content description is an accessibilit
 stage 3 inherits silently.
 
 **Assets** (§8) — three lists for stage 2. Vector icons: the outer container node id, its
-size, and the exact target path. Raster artwork: node id and render path (`painterResource`
+size, and the exact target path. Raster artwork: node id and render path (`app:srcCompat`
 or a `GlideImageView`). And what is **already in the repo**, which stage 2 must
 therefore not export.
 

@@ -98,7 +98,7 @@ appears in. Exporting the same glyph twice in two colours is the failure this av
 ### Dynamic & Remote Images (Glide)
 For dynamic URLs, artwork, and banners, use `GlideImageView`:
 ```xml
-<com.<app>.ui.component.custom.GlideImageView
+<com.genesys.glideimageview.GlideImageView
     android:id="@+id/imgThumb"
     android:layout_width="80dp"
     android:layout_height="80dp"
@@ -108,7 +108,7 @@ For dynamic URLs, artwork, and banners, use `GlideImageView`:
     app:glideRadius="@dimen/radius_12" />
 ```
 
-Then `binding.imgThumb.glideSrc = imageUrl`. Where the view is a plain `ImageView`, the
+Then `binding.imgThumb.load(imageUrl)`. Where the view is a plain `ImageView`, the
 `ImageView.loadImage(...)` extension takes the same options. See the
 `image-loading-glide` skill.
 

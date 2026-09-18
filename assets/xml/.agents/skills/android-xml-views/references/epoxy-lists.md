@@ -56,7 +56,7 @@ abstract class DocumentItemModel :
         val data = document ?: return
         tvName.text = data.name
         tvSize.text = data.readableSize
-        imgThumb.glideSrc = data.thumbnailUrl
+        imgThumb.load(data.thumbnailUrl)
         root.isSelected = data.isSelected
 
         root.clickView { onClickDocument?.invoke(data, position) }
@@ -66,7 +66,7 @@ abstract class DocumentItemModel :
     override fun ItemDocumentBinding.unbind() {
         root.setOnClickListener(null)
         ivMore.setOnClickListener(null)
-        Glide.with(imgThumb).clear(imgThumb)
+        imgThumb.clear()
     }
 }
 ```
