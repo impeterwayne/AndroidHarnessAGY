@@ -1,0 +1,122 @@
+{
+  "kotlin-rule-gate": {
+    "_comment": "Enforces rules/android.md (or rules/xml.md) / rules/lean.md on agent writes. On *.kt: no // or /* */ comments (KDoc allowed), no literal strings in user-facing Compose params, no raw hex colors outside :core:designsystem. On *.xml under res/layout: no literal android:text / hint / contentDescription, no raw hex (tools: attributes exempt as design-time). On *.xml under res/drawable: no new <shape>/<selector>/<ripple> -- express it with ShapeView app:shape_* attributes; vectors and layer-lists pass. The drawable rule fires only when rules/xml.md is installed, since it is that rule which forbids them, so a Compose project is unaffected. PreToolUse rather than PostToolUse because the PostToolUse payload carries no toolCall, so it cannot know the target file. Fails open on any error or unrecognised argument shape. Verified: 25/25 fixtures, 0 false positives across the 90 files in CodebaseCompose; swept against TheSun-PDFReader-8 and TheSun-CastTV-12 (all XML hits were real violations). Pass verdict is 'ask' (normal approval flow preserved); flip PASS_DECISION in rule_gate.py to 'allow' to auto-approve clean writes.",
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python hooks/rule_gate.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "root-write-guard": {
+    "_comment": "Re-homes the 'orchestrator never writes code' invariant, which `mainAgent` cannot carry: `agy --agent <name>` does not load a custom agent in CLI 1.1.22, so orchestrator.md's empty write-tool list enforces nothing. This denies writes to SOURCE files (kt/kts/java/xml/gradle/py/sh/ps1/json/toml/properties) when the calling conversation is the ROOT session, and passes them for delegates -- so the human's session must dispatch the `executor` subagent instead of editing. Docs, notes and plans are never gated; the invariant is about code. Root/delegate is decided by scanning sibling brain dirs for a parent's 'Created the following subagents' record naming this conversationId -- directional on purpose, because a child names its parent when reporting back and a plain substring test misreads every parent as a delegate. Delegate verdicts cache to .agents/state/write_guard/ (~15ms cold across 505 brain dirs, 0.11ms cached); root is deliberately NOT cached so a late parent flush can still flip it. Fails open on any error, unknown arg shape, or missing conversationId. ENABLED BY DEFAULT: it is the enforcement half of the delegation rule in AGENTS.md at the project ROOT (moved there from rules/orchestrate.md on 2026-08-28 -- rule files did not reliably reach the turn, and this is the one rule whose failure is silent), which states the same invariant as always-on prompt context. It is stricter than the original invariant and will block your own one-line fixes. Escape hatch without editing config: `python .agents/hooks/write_guard.py --off` (and --on, --status). Verified 33/33 fixtures plus 3 real conversation ids. Scoped to the project root, so an agent's own scratch space under ~/.gemini/antigravity-cli/brain/<id>/scratch/ is never gated, and goals.json is exempt (it is ultrawork step 2). UNVERIFIED: how Antigravity combines two PreToolUse verdicts when this and kotlin-rule-gate both match a write -- check before trusting it in anger.",
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python hooks/write_guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "ultrawork-intent-gate": {
+    "_comment": "Turns the literal word 'ultrawork' (or 'ultra work' / 'ulw') in a user prompt into an injected directive that activates .agents/skills/ultrawork/SKILL.md. PreInvocation carries NO prompt text, so the transcript is the only source. Cheap by construction: the transcript is append-only, so the hook stores a byte offset per conversationId and scans only what was appended -- the common case is a stat plus a 256-byte head check (file identity; size alone cannot detect rotation), and only the first invocation of a conversation reads the whole file. Fires at most once per triggering prompt (records are fingerprinted on created_at + request text) and at most 8 times per conversation. Three deliberate stand-downs: the trigger is matched ONLY inside <USER_REQUEST> (the <ADDITIONAL_METADATA> block inlines whole skill bodies for slash commands, so matching there would fire on any skill that mentions the word); nothing is injected when the record shows the platform already activated the skill ('invoked the (ultrawork) skill' -- typing /ultrawork loads it natively, since skills are Antigravity's slash-command mechanism); and records carrying the hook's own <ultrawork-mode> marker are skipped so an injection cannot re-trigger the gate. Keying on a literal word also scopes it to the main session for free -- a subagent's task prompt cannot contain the trigger unless the orchestrator put it there. Fuzzy activation ('do this properly') is left to the skill's description and Antigravity's semantic discovery; a regex for intent would fire on prose about rigour. Fails open (prints {}) on any error. Escape hatch without editing config: `python .agents/hooks/intent_gate.py --off` (also --on, --status, --print-directive, --scan <transcript>). Verified: 36 fixtures. NOTE: this is the second PreInvocation handler alongside scrcpy-daemon, so each LLM call now pays two Python startups (~50ms each); if a third ever appears, merge them into one dispatcher.",
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python hooks/intent_gate.py",
+        "timeout": 10
+      }
+    ]
+  },
+  "stop-verifier": {
+    "_comment": "Holds a registered goal loop open until its goals hold. Inert unless the stopping conversation OWNS a loop under .agents/state/loop/ -- so it is opt-in by construction (someone ran `loop.py create-goals`) and cannot fight subagents, which do not own their parent's loop. Brakes before verification: hard-stops on the real terminationReason enum (ERROR/USER_CANCELED/MAX_INVOCATIONS/MAX_FORCED_INVOCATIONS/MAX_TOKEN_BUDGET_EXCEEDED/HALTED_STEP/TERMINAL_CUSTOM_HOOK -- payload values are the TERMINATION_REASON_* enum minus its prefix, e.g. NO_TOOL_CALL, NOT the docs' 'model_stop'); defers while fullyIdle is false; caps resumes at 2 per goal (1 after compaction) and 6 per session; marks the loop stuck and stops when the LEDGER did not advance across a resume; backs off exponentially after failed checkpoints; and honours the skill's own three-consecutive-failures rule. Verification validates the RECORD, never re-runs the work: a recorded non-zero exit code under a 'complete' goal, a missing evidence artifact, or goals.json drifting from the ledger each block the stop -- because a Stop hook running Gradle would cost 30-90s against a 30s timeout. Fails open (prints {\"decision\":\"stop\"}, the value probe.py proved safe) on any error. ~50ms per Stop with no loop registered (Python startup), ~70ms worst case with a 6MB transcript. Escape hatch without editing config: `python .agents/hooks/stop_verifier.py --off` (also --on, --status, --clear [--session X]). Verified: 52 fixtures including the acceptance case (no constructable case resumes more than twice), plus a live two-goal session (CLI 1.1.22) where an unfinished goal was resumed exactly once and then permitted, and an unsatisfiable goal was closed out as `failed` on the record rather than ground on. The block reaches the agent as a SYSTEM_MESSAGE prefixed 'Stop hook blocked termination: '.",
+    "enabled": true,
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python hooks/stop_verifier.py",
+        "timeout": 20
+      }
+    ]
+  },
+  "omo-port-probe": {
+    "_comment": "Contract probe. Q1/Q3 answered 2026-08-27 -- findings recorded in docs/omo-port/MAPPING.md. Left disabled rather than deleted: re-enable to answer Q7 (named-agent invoke_subagent shape) by running one delegation to a named .agents/agents/* agent. CWD is confirmed to be .agents/, so the '|| python hooks/...' fallback is redundant.",
+    "enabled": false,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python hooks/probe.py preinvocation",
+        "timeout": 5
+      }
+    ],
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "python hooks/probe.py postinvocation",
+        "timeout": 5
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python hooks/probe.py stop",
+        "timeout": 5
+      }
+    ]
+  },
+  "scrcpy-daemon": {
+    "_comment": "Owns the scrcpy-cli daemon so the agent never runs `daemon start`/`daemon stop` itself. Brings the daemon up on the first LLM call of a conversation (ALWAYS_START=True in scrcpy_daemon.py; set it False to start only when the transcript shows device work). Idempotent via a per-conversationId marker, so the ~50 PreInvocations in a session cost one marker check each. A 60s negative cache avoids re-probing when no device is attached. Stop is refcounted by conversationId so a finishing subagent cannot kill a daemon its parent is still using, and a daemon started by hand outside the agent is never stopped. PreInvocation/Stop only -- a PreToolUse hook on run_command would have to return a decision for every shell command. Verified on a Pixel 7a: detached spawn, non-blocking, refcount, and cleanup all confirmed.",
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python hooks/scrcpy_daemon.py preinvocation",
+        "timeout": 10
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python hooks/scrcpy_daemon.py stop",
+        "timeout": 20
+      }
+    ]
+  },
+  "device-gate": {
+    "_comment": "Makes the andrun device lease non-optional, so parallel git worktrees cannot install over each other. One machine, one pool of devices: two worktrees deploying the same applicationId overwrite each other and the loser's screenshots show the winner's build -- a failure that reads as success, which is why this is enforced rather than documented. PreToolUse on run_command: a command that occupies a device first runs `andrun queue ensure` (hold-or-acquire, bounded 8s wait), then the leased serial is merged into the command via `overwrite` -- `scrcpy-cli screenshot x.png` executes as `scrcpy-cli -s <leased> screenshot x.png`, so an agent cannot drive a device it does not hold and never needs to carry a serial or a lease token. Read-only probes (adb devices, scrcpy-cli device-list, andrun devices/queue/serial) pass through without taking a lease. When every device is held elsewhere the verdict is `deny` naming the holding worktree, its task and remaining TTL, plus the blocking command to run: the hook cannot wait minutes (docs: >10s degrades the agent loop) but the agent's own run_command can, and stays interruptible. Four forms are denied outright because they pick a device themselves and ignore the lease: `adb install`, Gradle's install*/connected*/uninstall* tasks, `andrun install`/`run` without --no-build (which would also run Gradle outside the gradle-run wrapper and flood the context), and `scrcpy-cli daemon start|stop` (owned by the scrcpy-daemon hook). Stop is refcounted by conversationId exactly like scrcpy-daemon -- a finishing verifier subagent must not release the device its dispatcher is still using -- and the last owner out releases the lease. A crashed agent leaks nothing: session leases expire on their TTL (30m, topped up but never accumulated on each gated command). Fails open on every error, on a missing andrun, and when no device is attached at all, so the verifier can observe 'no device' itself and report SKIPPED. Requires andrun >= 1.1 (`andrun queue ensure`, `andrun serial`, worktree-resolved leases). Cost: one Python start (~50ms) per run_command, regex fast-path for the ~95% that touch no device. Escape hatch without editing config: `python .agents/hooks/device_gate.py --off` (also --on, --status, --self-test). Verified: 37/37 fixtures, plus a live Pixel 7a run covering ambient acquire, serial injection, a simulated sibling-worktree conflict, and refcounted release.",
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python hooks/device_gate.py pretooluse",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python hooks/device_gate.py stop",
+        "timeout": 20
+      }
+    ]
+  }
+}

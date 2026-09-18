@@ -2,24 +2,37 @@
 """
 aha -- inject the Antigravity Android agent harness into any project.
 
-Everything that ships lives under `assets/`, and nowhere else: `assets/.agents/`
-(rules, skills, agents, hooks, mcp_config.json) lands at `<target>/.agents/`, and
-`assets/AGENTS.md` carries the delegation rule, which must sit at the project root
-to be read reliably -- it is written as a marker-delimited block, so an existing
-`AGENTS.md` keeps its own content and `undo` / `remove` takes back only the block
-it added.
+There are two payloads, one per UI toolkit, and they are independent trees:
+
+    assets/compose/   Jetpack Compose -- rules/android.md, the compose-* skills,
+                      Landscapist, Orbit MVI, figma-compose-developer
+    assets/xml/       Views and XML layouts -- rules/xml.md, ShapeView, Glide,
+                      Epoxy, figma-xml-developer
+
+`--track` picks one and the whole of it is installed. They are never merged: the
+thing that separates them is always-on prompt context, so shipping both would hand
+the agent two contradictory sets of non-negotiables.
+
+Within the selected track, `assets/<track>/.agents/` (rules, skills, agents, hooks,
+mcp_config.json) lands at `<target>/.agents/`, and `assets/<track>/AGENTS.md`
+carries the delegation rule, which must sit at the project root to be read reliably
+-- it is written as a marker-delimited block, so an existing `AGENTS.md` keeps its
+own content and `undo` / `remove` takes back only the block it added.
 
 Installed files are excluded individually in `.git/info/exclude` under a marked
 block on `init` and `update`, leaving any overlapping or custom files in `.agents/`
 tracked by git.
 
-    python aha.py init      [target]  copy assets/ into [target] (default: .)
+    python aha.py init      [target]  copy the selected track into [target] (default: .)
     python aha.py update    [target]  re-copy, keeping locally edited files
     python aha.py status    [target]  what is installed, and what drifted
     python aha.py undo      [target]  cleanly reverses init, keeping non-AHA files
     python aha.py undo-init [target]  alias for undo
     python aha.py remove    [target]  alias for undo
     python aha.py list                available components and profiles
+
+    aha init --track xml              a View/XML project
+    aha init                          Compose (the default)
 
 Stdlib only. Run `python aha.py <command> --help` for flags.
 """
@@ -37,10 +50,19 @@ import sys
 import time
 from pathlib import Path
 
-# The payload is an asset, not this repo's own setup: `assets/` holds the one
-# copy of every file that ships, and this repo has no `.agents/` of its own.
+# The payload is an asset, not this repo's own setup: `assets/<track>/` holds the
+# one copy of every file that ships, and this repo has no `.agents/` of its own.
+#
+# Files common to both tracks -- the hooks, loop.py, mcp_config.json and the
+# toolkit-neutral skills -- are duplicated by design so each tree installs whole.
+# `tests/test_aha.py` asserts they stay byte-identical and fails on drift.
 REPO_ROOT = Path(__file__).resolve().parent
-SOURCE_ROOT = REPO_ROOT / "assets"
+ASSETS_ROOT = REPO_ROOT / "assets"
+TRACKS = ("compose", "xml")
+DEFAULT_TRACK = "compose"
+
+# Rebound by select_track() before any command touches them.
+SOURCE_ROOT = ASSETS_ROOT / DEFAULT_TRACK
 SOURCE_AGENTS = SOURCE_ROOT / ".agents"
 MANIFEST_NAME = ".aha.json"
 LEGACY_MANIFEST_NAME = ".oma.json"
@@ -75,51 +97,95 @@ EXCLUDES = (
 # overwritten, because a project may already have its own.
 MERGEABLE = ("hooks.json", "mcp_config.json")
 
-# Profiles select which skills/agents/rules ship. `full` is the default and is
-# defined by absence -- everything on disk. The named subsets are convenience,
-# not policy; edit these lists freely.
-PROFILES: dict[str, dict[str, list[str]]] = {
-    "minimal": {
-        "skills": [
-            "lean", "lean-audit", "lean-debt", "lean-gain", "lean-help",
-            "lean-review", "code-review", "document_project", "loop", "ultrawork",
-            "gradle-run", "scrcpy",
-        ],
-        "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
-        "rules": ["lean"],
+# Profiles select which skills/agents/rules ship WITHIN a track. `full` is the
+# default and is defined by absence -- everything that track has on disk. The named
+# subsets are convenience, not policy; edit these lists freely.
+#
+# The names mean the same thing in both tracks, so muscle memory carries across:
+# `android` is app work without the Figma pipeline, `figma` is a design-to-code
+# sprint, `minimal` is lean review and goal loops. Only the payload differs.
+PROFILES: dict[str, dict[str, dict[str, list[str]]]] = {
+    "compose": {
+        "minimal": {
+            "skills": [
+                "lean", "lean-audit", "lean-debt", "lean-gain", "lean-help",
+                "lean-review", "code-review", "document_project", "loop", "ultrawork",
+                "gradle-run", "scrcpy",
+            ],
+            "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
+            "rules": ["lean"],
+        },
+        "figma": {
+            "skills": [
+                "figma-asset-extractor", "figma-design-analyzer", "figma2compose",
+                "image-loading-landscapist", "styles", "lean", "lean-review",
+                "android-code-indexer", "android-resource-policy",
+                "compose-component-design", "compose-state-and-effects",
+                "orbit-mvi-feature-builder", "gradle-run", "testing-setup", "scrcpy",
+            ],
+            "agents": [
+                "explore", "figma-analyzer", "figma-asset-extractor",
+                "figma-compose-developer", "orchestrator", "verifier",
+            ],
+            "rules": ["figma", "android", "lean"],
+        },
+        "android": {
+            "skills": [
+                "adaptive", "agp-9-upgrade", "android-code-indexer",
+                "android-intent-security", "android-profiler", "android-resource-policy",
+                "appfunctions", "code-review", "compose-animations",
+                "compose-component-design", "compose-focus-navigation",
+                "compose-performance", "compose-state-and-effects",
+                "compose-ui-testing-patterns", "document_project", "edge-to-edge",
+                "gradle-run", "image-loading-landscapist", "kotlin-api-design",
+                "kotlin-compose-skills", "kotlin-concurrency-and-flow",
+                "kotlin-control-flow", "lean", "lean-audit", "lean-debt", "lean-gain",
+                "lean-help", "lean-review", "loop",
+                "migrate-xml-views-to-jetpack-compose", "navigation-3",
+                "orbit-mvi-feature-builder", "play-policy-insights", "r8-analyzer",
+                "scrcpy", "styles", "testing-setup", "translate-strings", "ultrawork",
+            ],
+            "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
+            "rules": ["android", "lean"],
+        },
     },
-    "figma": {
-        "skills": [
-            "figma-asset-extractor", "figma-design-analyzer", "figma2compose",
-            "image-loading-landscapist", "styles", "lean", "lean-review",
-            "android-code-indexer", "android-resource-policy",
-            "compose-component-design", "compose-state-and-effects",
-            "orbit-mvi-feature-builder", "gradle-run", "testing-setup", "scrcpy",
-        ],
-        "agents": [
-            "explore", "figma-analyzer", "figma-asset-extractor",
-            "figma-compose-developer", "orchestrator", "verifier",
-        ],
-        "rules": ["figma", "android", "lean"],
-    },
-    "android": {
-        "skills": [
-            "adaptive", "agp-9-upgrade", "android-code-indexer",
-            "android-intent-security", "android-profiler", "android-resource-policy",
-            "appfunctions", "code-review", "compose-animations",
-            "compose-component-design", "compose-focus-navigation",
-            "compose-performance", "compose-state-and-effects",
-            "compose-ui-testing-patterns", "document_project", "edge-to-edge",
-            "gradle-run", "image-loading-landscapist", "kotlin-api-design",
-            "kotlin-compose-skills", "kotlin-concurrency-and-flow",
-            "kotlin-control-flow", "lean", "lean-audit", "lean-debt", "lean-gain",
-            "lean-help", "lean-review", "loop",
-            "migrate-xml-views-to-jetpack-compose", "navigation-3",
-            "orbit-mvi-feature-builder", "play-policy-insights", "r8-analyzer",
-            "scrcpy", "styles", "testing-setup", "translate-strings", "ultrawork",
-        ],
-        "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
-        "rules": ["android", "lean"],
+    "xml": {
+        "minimal": {
+            "skills": [
+                "lean", "lean-audit", "lean-debt", "lean-gain", "lean-help",
+                "lean-review", "code-review", "document_project", "loop", "ultrawork",
+                "gradle-run", "scrcpy",
+            ],
+            "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
+            "rules": ["lean"],
+        },
+        "figma": {
+            "skills": [
+                "figma-asset-extractor", "figma-design-analyzer", "figma2xml",
+                "shape-view", "image-loading-glide", "android-xml-views",
+                "xml-resource-policy", "lean", "lean-review", "android-code-indexer",
+                "gradle-run", "testing-setup", "scrcpy",
+            ],
+            "agents": [
+                "explore", "figma-analyzer", "figma-asset-extractor",
+                "figma-xml-developer", "orchestrator", "verifier",
+            ],
+            "rules": ["figma", "xml", "lean"],
+        },
+        "android": {
+            "skills": [
+                "agp-9-upgrade", "android-code-indexer", "android-intent-security",
+                "android-profiler", "android-xml-views", "appfunctions", "code-review",
+                "document_project", "gradle-run", "image-loading-glide",
+                "kotlin-api-design", "kotlin-concurrency-and-flow",
+                "kotlin-control-flow", "lean", "lean-audit", "lean-debt", "lean-gain",
+                "lean-help", "lean-review", "loop", "play-policy-insights",
+                "r8-analyzer", "scrcpy", "shape-view", "testing-setup",
+                "translate-strings", "ultrawork", "xml-resource-policy",
+            ],
+            "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
+            "rules": ["xml", "lean"],
+        },
     },
 }
 
@@ -131,6 +197,17 @@ PROFILES: dict[str, dict[str, list[str]]] = {
 def die(msg: str) -> None:
     print(f"aha: {msg}", file=sys.stderr)
     sys.exit(1)
+
+
+def select_track(track: str) -> None:
+    """Point the installer at one of the two payload trees."""
+    global SOURCE_ROOT, SOURCE_AGENTS
+    if track not in TRACKS:
+        die(f"unknown track {track!r} (have: {', '.join(TRACKS)})")
+    SOURCE_ROOT = ASSETS_ROOT / track
+    SOURCE_AGENTS = SOURCE_ROOT / ".agents"
+    if not SOURCE_AGENTS.is_dir():
+        die(f"no {SOURCE_AGENTS} -- run this from the harness repo")
 
 
 def source_commit() -> str:
@@ -184,9 +261,11 @@ def sha256(path: Path) -> str:
 
 def resolve_selection(args) -> dict[str, set[str] | None]:
     """Map each component kind to the set of names to install, or None = all."""
-    profile = PROFILES.get(args.profile) if args.profile != "full" else None
+    track_profiles = PROFILES[args.track]
+    profile = track_profiles.get(args.profile) if args.profile != "full" else None
     if args.profile != "full" and profile is None:
-        die(f"unknown profile {args.profile!r} (have: full, {', '.join(PROFILES)})")
+        die(f"unknown profile {args.profile!r} for track {args.track!r} "
+            f"(have: full, {', '.join(track_profiles)})")
 
     selection: dict[str, set[str] | None] = {}
     for kind in ("skills", "agents", "rules"):
@@ -463,6 +542,7 @@ def write_manifest(target_agents: Path, files: dict[str, str], args) -> None:
     manifest = {
         "source": str(SOURCE_ROOT),
         "commit": source_commit(),
+        "track": args.track,
         "profile": args.profile,
         "installed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "files": files,
@@ -611,6 +691,7 @@ def do_install(args, updating: bool) -> int:
 
     verb = "would write" if args.dry_run else "wrote"
     print(f"aha {'update' if updating else 'init'} -> {target_agents}")
+    print(f"  track        {args.track}")
     print(f"  profile      {args.profile}  (source {source_commit()})")
     print(f"  {verb:<12} {len(written)} file(s)"
           + (f", {unchanged_n} already current" if unchanged_n else ""))
@@ -655,6 +736,7 @@ def do_status(args) -> int:
 
     state = classify(target_agents, manifest)
     print(f"  installed    {manifest.get('installed_at', '?')}"
+          f"  track {manifest.get('track', DEFAULT_TRACK)}"
           f"  profile {manifest.get('profile', '?')}  commit {manifest.get('commit', '?')}")
     print(f"  source       {manifest.get('source', '?')}")
 
@@ -826,11 +908,20 @@ def do_list(args) -> int:
     print(f"root files ({1 if (SOURCE_ROOT / ROOT_DOC).is_file() else 0})")
     print(f"  {ROOT_DOC:<10} delegation rule, spliced into the target's root file")
     print()
-    print("profiles")
+    print(f"profiles (track {args.track})")
     print(f"  {'full':<10} everything above (default)")
-    for name, spec in PROFILES.items():
+    for name, spec in PROFILES[args.track].items():
         counts = ", ".join(f"{len(v)} {k}" for k, v in spec.items())
         print(f"  {name:<10} {counts}")
+    print()
+    print("tracks")
+    for name in TRACKS:
+        agents_dir = ASSETS_ROOT / name / ".agents"
+        n = len(list((agents_dir / "skills").iterdir())) if agents_dir.is_dir() else 0
+        mark = "  (shown above)" if name == args.track else ""
+        print(f"  {name:<10} {n} skills{mark}")
+    print(f"\n  aha list --track {TRACKS[1] if args.track == TRACKS[0] else TRACKS[0]}"
+          f"   to see the other one")
     return 0
 
 
@@ -839,8 +930,11 @@ def do_list(args) -> int:
 # --------------------------------------------------------------------------
 
 def add_selection_flags(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--track", default=None, choices=TRACKS,
+                   help=f"which payload to install: {' or '.join(TRACKS)} "
+                        f"(default: {DEFAULT_TRACK})")
     p.add_argument("--profile", default="full",
-                   help="full (default), " + ", ".join(PROFILES))
+                   help="full (default), " + ", ".join(PROFILES[DEFAULT_TRACK]))
     p.add_argument("--skills", help="comma-separated skill names (overrides profile)")
     p.add_argument("--agents", help="comma-separated agent names (overrides profile)")
     p.add_argument("--rules", help="comma-separated rule names (overrides profile)")
@@ -857,8 +951,9 @@ def add_selection_flags(p: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if not SOURCE_AGENTS.is_dir():
-        die(f"no {SOURCE_AGENTS} -- run this from the harness repo")
+    missing = [n for n in TRACKS if not (ASSETS_ROOT / n / ".agents").is_dir()]
+    if missing:
+        die(f"no assets/{missing[0]}/.agents -- run this from the harness repo")
 
     parser = argparse.ArgumentParser(
         prog="aha", description=__doc__,
@@ -901,25 +996,40 @@ def main(argv: list[str]) -> int:
         p_cmd.add_argument("-n", "--dry-run", action="store_true",
                            help="print what would be removed")
 
-    sub.add_parser("list", help="show available components and profiles")
+    p_ls = sub.add_parser("list", help="show available components and profiles")
+    p_ls.add_argument("--track", default=DEFAULT_TRACK, choices=TRACKS,
+                      help=f"which payload to describe (default: {DEFAULT_TRACK})")
 
     args = parser.parse_args(argv)
 
     if args.command == "init":
-        # A profile-less update carries the previous profile forward.
+        if args.track is None:
+            args.track = DEFAULT_TRACK
+        select_track(args.track)
         return do_install(args, updating=False)
     if args.command == "update":
         target_agents = Path(args.target).resolve() / ".agents"
         prev = read_manifest(target_agents)
+        # A flag-less update carries the previous track and profile forward --
+        # silently switching a project's toolkit on `aha update` would swap its
+        # always-on rules out from under it.
         gave_profile = any(a == "--profile" or a.startswith("--profile=") for a in argv)
         if prev and not gave_profile:
             args.profile = prev.get("profile", "full")
+        if args.track is None:
+            args.track = (prev or {}).get("track", DEFAULT_TRACK)
+        select_track(args.track)
         return do_install(args, updating=True)
     if args.command == "status":
+        prev = read_manifest(Path(args.target).resolve() / ".agents")
+        select_track((prev or {}).get("track", DEFAULT_TRACK))
         return do_status(args)
     if args.command in ("remove", "undo", "undo-init"):
+        prev = read_manifest(Path(args.target).resolve() / ".agents")
+        select_track((prev or {}).get("track", DEFAULT_TRACK))
         return do_remove(args)
     if args.command == "list":
+        select_track(args.track)
         return do_list(args)
     return 1
 

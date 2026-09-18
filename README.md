@@ -2,7 +2,23 @@
 
 > **A production-ready agentic engineering harness for Android development with Google Antigravity IDE & CLI (`agy`).**
 
-**AndroidHarnessAGY** equips Google Antigravity with senior Android engineering guardrails, patterns, and workflows. It packages architectural rules, agent personas, 42 specialized domain skills, deterministic safety hooks, Figma-to-Compose pipelines, and a durable goal-loop engine into a zero-pollution `.agents/` payload that can be injected into any Android repository via the included `aha` CLI.
+**AndroidHarnessAGY** equips Google Antigravity with senior Android engineering guardrails, patterns, and workflows. It packages architectural rules, agent personas, specialized domain skills, deterministic safety hooks, Figma-to-code pipelines, and a durable goal-loop engine into a zero-pollution `.agents/` payload that can be injected into any Android repository via the included `aha` CLI.
+
+It ships **two independent payloads**, one per UI toolkit — pick with `--track`:
+
+| Track | For | UI | Backgrounds | Images | Lists | Figma stage 3 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`compose`** *(default)* | Jetpack Compose projects | `@Composable`, `AppTheme` tokens | Compose `Modifier` / `shapes` | Landscapist `GlideImage` | `LazyColumn` | `figma-compose-developer` |
+| **`xml`** | View / XML projects | layouts + ViewBinding, `TextAppearance.App.*` | **ShapeView** `app:shape_*` | **Glide** (`GlideImageView`) | **Epoxy** controllers | `figma-xml-developer` |
+
+```bash
+aha init                 # Compose harness
+aha init --track xml     # XML harness
+```
+
+They are separate trees under `assets/`, never merged. What separates them —
+`rules/android.md` versus `rules/xml.md` — is always-on prompt context, so installing both
+would hand the agent two contradictory sets of non-negotiables.
 
 ---
 
@@ -20,7 +36,7 @@
   - [3. Domain Skills Catalog](#3-domain-skills-catalog)
   - [4. Architectural Rules and Guardrails](#4-architectural-rules-and-guardrails)
   - [5. Durable Goal Loop Engine](#5-durable-goal-loop-engine)
-- [Figma-to-Jetpack-Compose Workflow](#figma-to-jetpack-compose-workflow)
+- [Figma-to-Code Workflow](#figma-to-code-workflow)
 - [Developer Workflows and Slash Commands](#developer-workflows-and-slash-commands)
 - [Repository Layout](#repository-layout)
 
@@ -28,8 +44,9 @@
 
 ## Key Capabilities
 
-- **Clean Architecture & Orbit MVI Enforcement**: Hardened rules ensure stateless composables, unidirectional data flow (`ContainerHost`, `UiState`, `SideEffect`), and ViewModel decoupling.
-- **Figma-to-Compose Pipeline**: Native Figma MCP integration (`figma-mcp-android`) extracts layouts, tokens, and vector drawables (`ic_*.xml`), generating production-grade Jetpack Compose UI.
+- **Clean Architecture & Unidirectional State Enforcement**: Hardened rules ensure stateless UI, unidirectional data flow (Orbit MVI on the Compose track; an `Action`/`SideEffect` contract over `BaseViewModel` on the XML track), and ViewModel decoupling.
+- **Figma-to-Code Pipeline**: Native Figma MCP integration (`figma-mcp-android`) extracts layouts, tokens, and vector drawables (`ic_*.xml`), generating production-grade Jetpack Compose UI — or, on the `xml` track, `ConstraintLayout` trees with ShapeView attributes, Glide imagery and Epoxy lists.
+- **Two Tracks, One Installer**: `assets/compose/` and `assets/xml/` are self-contained payloads. `--track` installs one whole; the toolkit-neutral parts (hooks, `loop.py`, the Kotlin and tooling skills) are duplicated by design and held byte-identical by a test that fails on drift.
 - **Automated PreToolUse & PreInvocation Safety Gates**: Python hooks block comment clutter, catch hardcoded UI strings, prevent raw hex colors, and activate rigour modes autonomously.
 - **Resilient Goal Loop Engine (`loop.py`)**: Structured, append-only ledger for multi-goal workflows that survives LLM context compaction and enforces verified exit criteria.
 - **Lean Engineering Mindset**: Enforces YAGNI (You Aren't Gonna Need It), Kotlin stdlib/KTX reuse, Compose native primitives, and zero speculative scaffolding.
@@ -62,12 +79,18 @@ npx android-harness-agy init /path/to/MyAndroidApp
 From any directory or directly inside your Android project root:
 
 ```bash
-# Inject into current project (target defaults to .)
+# Inject into current project (target defaults to ., track defaults to compose)
 aha init
 
 # Or specify a target path
 aha init /path/to/MyAndroidApp
+
+# A View/XML project takes the other payload
+aha init /path/to/MyXmlApp --track xml
 ```
+
+`--track` is recorded in `.aha.json`, and a flagless `aha update` carries it forward — an
+update never silently swaps a project's always-on rules out from under it.
 
 This injects `.agents/` into your target repository and creates an `.aha.json` manifest to track versions, digests, and local edits.
 
@@ -84,18 +107,25 @@ reverses the installation and restores your original file. Skip it entirely with
 
 Tailor the harness payload to your project's needs using `--profile`:
 
-| Profile | Skills | Agents | Rules | Primary Use Case |
-| :--- | :---: | :---: | :---: | :--- |
-| **`full`** *(default)* | All 42 | All 8 | All 3 | Complete Android, Figma, MVI, and Rigour harness |
-| **`android`** | 39 | 5 | 2 | Pure Android app development (Clean Arch + Orbit MVI + Compose) |
-| **`figma`** | 15 | 6 | 3 | Design-to-code sprint: spec, assets, Compose, and on-device design conformance |
-| **`minimal`** | 10 | 5 | 1 | Lean engineering, code reviews, and basic goal loops |
+Profiles narrow the payload **within** a track. The names mean the same thing in both, so
+muscle memory carries across; only the contents differ.
+
+| Profile | Primary use case | `compose` | `xml` |
+| :--- | :--- | :---: | :---: |
+| **`full`** *(default)* | The whole track | 42 skills, 8 agents, 3 rules | 31 skills, 8 agents, 3 rules |
+| **`android`** | App development, no Figma pipeline | 39 / 5 / 2 | 28 / 5 / 2 |
+| **`figma`** | Design-to-code sprint: spec, assets, UI, on-device conformance | 15 / 6 / 3 | 13 / 6 / 3 |
+| **`minimal`** | Lean engineering, code reviews, goal loops | 12 / 5 / 1 | 12 / 5 / 1 |
 
 ```bash
 # Examples:
 aha init --profile android
-aha init --profile figma
+aha init --track xml --profile figma
 aha init --profile minimal
+
+# What a track actually contains:
+aha list
+aha list --track xml
 ```
 
 ### 4. Harness Management Commands
@@ -150,11 +180,11 @@ flowchart TD
     StopVerifier -->|Unmet Criteria| Resume[Resumes Agent with Next Goal]
 ```
 
-- **`kotlin-rule-gate` (`rule_gate.py` - `PreToolUse`)**:
-  - Scans all Kotlin writes in real-time.
-  - Rejects `//` or `/* */` comments (KDoc allowed).
-  - Blocks hardcoded user-facing strings (enforces `res/values/strings.xml`).
-  - Blocks hardcoded hex colors (enforces `AppTheme.colorScheme`).
+- **`kotlin-rule-gate` (`rule_gate.py` - `PreToolUse`)** — one file, shipped in both tracks, self-configuring from the rules it finds installed:
+  - **Kotlin**: rejects `//` or `/* */` comments (KDoc allowed), hardcoded user-facing strings in Compose params, and hex colours outside `:core:designsystem` and `@Preview`.
+  - **XML layouts**: rejects literal `android:text` / `hint` / `contentDescription` (enforces `@string/…`) and raw hex (enforces `@color/…`). `tools:` attributes are design-time and exempt.
+  - **XML drawables, `xml` track only**: rejects a new `<shape>` / `<selector>` / `<ripple>` and points at ShapeView's `app:shape_*` attributes. Vectors and layer-lists are genuine drawings and pass. Gated on `rules/xml.md` being present, so the Compose track is unaffected.
+  - `python .agents/hooks/rule_gate.py --self-test` runs the 25 fixtures; `--scan <path>` sweeps an existing tree for false positives.
 - **`stop-verifier` (`stop_verifier.py` - `Stop`)**:
   - Holds active goal loops open until verification evidence and commands (e.g., `./gradlew test`) exit cleanly.
 - **`ultrawork-intent-gate` (`intent_gate.py` - `PreInvocation`)**:
@@ -182,15 +212,16 @@ flowchart TD
 | **`oracle`** | Architectural Judge | Consultative deep-thinker for reviewing architecture, edge cases, and design compliance. |
 | **`executor`** | Implementer | Every code change: single-file fixes through multi-module features, refactors and migrations. Holds the shell, so it compiles and tests what it writes. |
 | **`verifier`** | Build & Device Gate | Read-only on the repo. Runs the one aggregate Gradle build over a converged change set — per-module compiles do not prove `:app` links — then, for UI work, `installDebug` and drives the real screen via `scrcpy-cli` for launch, screenshots, and a named scenario. Holds Gradle exclusively, so a fan-out ends with it rather than with N concurrent builds in one worktree. |
-| **`figma-analyzer`** | Design Specifier | Stage 1. Component inventory across frames, Auto-Layout mapped to Compose, variant and state matrix, typography, token gaps, prototype reactions. Writes `figma-spec.md` to a fixed template plus a reference PNG per frame. |
+| **`figma-analyzer`** | Design Specifier | Stage 1, in both tracks (the XML copy speaks layouts and resources rather than composables and tokens). Component inventory across frames, Auto-Layout mapped to Compose, variant and state matrix, typography, token gaps, prototype reactions. Writes `figma-spec.md` to a fixed template plus a reference PNG per frame. |
 | **`figma-asset-extractor`** | Asset Pipeline | Stage 2. Converts Figma SVGs to VectorDrawables (`ic_*.xml`), exports raster assets, snaps or adds design tokens by a tolerance policy, and records what actually landed in `figma-assets.json`. |
-| **`figma-compose-developer`** | UI Developer | Stage 3. Stateless Compose screens, Orbit MVI contract, and one `@Preview` per state the design defines. Resolves every resource name against the stage 2 manifest. |
+| **`figma-compose-developer`** | UI Developer (`compose`) | Stage 3 on the Compose track. Stateless Compose screens, Orbit MVI contract, and one `@Preview` per state the design defines. Resolves every resource name against the stage 2 manifest. |
+| **`figma-xml-developer`** | UI Developer (`xml`) | Stage 3 on the XML track. `ConstraintLayout` trees, ShapeView `shape_*` attributes for every fill, radius, border, gradient and shadow, Glide imagery, Epoxy controllers, and the `Action`/`SideEffect` contract. Resolves every resource name against the stage 2 manifest, and reports the taps that reach each variant row — XML has no previews. |
 
 ---
 
 ### 3. Domain Skills Catalog
 
-#### Android & Jetpack Compose
+#### Android & Jetpack Compose *(the `compose` track only)*
 - [`orbit-mvi-feature-builder`](file:///.agents/skills/orbit-mvi-feature-builder/SKILL.md): Implements Orbit MVI features (`ContainerHost`, `UiState`, `SideEffect`).
 - [`navigation-3`](file:///.agents/skills/navigation-3/SKILL.md): Jetpack Navigation 3 scenes, multi-stack flows, and deep link routing.
 - [`edge-to-edge`](file:///.agents/skills/edge-to-edge/SKILL.md): Window insets, IME padding, and system bar styling.
@@ -203,10 +234,17 @@ flowchart TD
 - [`migrate-xml-views-to-jetpack-compose`](file:///.agents/skills/migrate-xml-views-to-jetpack-compose/SKILL.md): Step-by-step XML-to-Compose migration.
 - [`styles`](file:///.agents/skills/styles/SKILL.md): Design system tokens and dynamic styling in Compose.
 
-#### Figma to Code
+#### Android XML Views *(the `xml` track only)*
+- [`android-xml-views`](file:///.agents/skills/android-xml-views/SKILL.md): ViewBinding over `BaseActivity`/`BaseFragment`, the `Action`/`SideEffect` contract, lifecycle-safe collection, Epoxy lists, dialogs, navigation, and module layout. References: [base classes](file:///.agents/skills/android-xml-views/references/base-classes.md), [Epoxy lists](file:///.agents/skills/android-xml-views/references/epoxy-lists.md), [module structure](file:///.agents/skills/android-xml-views/references/module-structure.md).
+- [`shape-view`](file:///.agents/skills/shape-view/SKILL.md): ShapeView (`com.github.impeterwayne:ShapeView`) as the background API — corners, borders, fills, gradients, state colours, ripples and shadows declared inline instead of as `res/drawable` files. References: [attributes](file:///.agents/skills/shape-view/references/attributes.md), [Kotlin API](file:///.agents/skills/shape-view/references/kotlin-api.md), [recipes](file:///.agents/skills/shape-view/references/recipes.md).
+- [`image-loading-glide`](file:///.agents/skills/image-loading-glide/SKILL.md): Glide for Views — the declarative `GlideImageView`, the `loadImage` extension, transformations, and clearing in an Epoxy model's `unbind()`. Reference: [GlideImageView](file:///.agents/skills/image-loading-glide/references/glide-image-view.md).
+- [`xml-resource-policy`](file:///.agents/skills/xml-resource-policy/SKILL.md): strings, plurals, colours and night mode, dimens, text appearances, themes, icons, RTL, and the reuse policy.
+- [`figma2xml`](file:///.agents/skills/figma2xml/SKILL.md): Figma spec to XML layouts. Reference: [layout mapping](file:///.agents/skills/figma2xml/references/layout-mapping-xml.md).
+
+#### Figma to Code *(both tracks)*
 - [`figma-design-analyzer`](file:///.agents/skills/figma-design-analyzer/SKILL.md): Deep structural inspection of Figma URLs and node IDs, against the canonical [spec template](file:///.agents/skills/figma-design-analyzer/references/figma-spec-template.md).
 - [`figma-asset-extractor`](file:///.agents/skills/figma-asset-extractor/SKILL.md): SVG-to-VectorDrawable conversion, token snap policy, and the [asset manifest](file:///.agents/skills/figma-asset-extractor/references/asset-manifest.md).
-- [`figma2compose`](file:///.agents/skills/figma2compose/SKILL.md): Full Figma design-to-Compose screen implementation.
+- [`figma2compose`](file:///.agents/skills/figma2compose/SKILL.md): Full Figma design-to-Compose screen implementation (`compose` track). The XML counterpart is [`figma2xml`](file:///.agents/skills/figma2xml/SKILL.md).
 
 #### Performance & Tooling
 - [`android-profiler`](file:///.agents/skills/android-profiler/SKILL.md): Perfetto system tracing, memory leak diagnosis, and startup optimization.
@@ -249,11 +287,21 @@ The delegation rule sits in **`AGENTS.md`** at the project root; the domain rule
    - Never hardcode strings — always use `strings.xml`.
    - No unnecessary inline comments in Kotlin code.
 
-2. **`figma.md`**:
+2. **`xml.md`** *(the `xml` track's replacement for `android.md`)*:
+   - Clean Architecture with ViewBinding over `BaseActivity<VB>` / `BaseFragment<VB>`, and an `Action` / `SideEffect` contract on a `BaseViewModel`.
+   - **ShapeView is the background API**: a corner radius, border, fill, gradient, state colour, ripple or shadow is an `app:shape_*` attribute on a `com.genesys.shape` view — not a new `<shape>` / `<selector>` / `<ripple>` in `res/drawable`.
+   - **Glide is the image API**: `GlideImageView` or the `loadImage` extension, always with a placeholder and an error, cleared in the Epoxy model's `unbind()`.
+   - Every `RecyclerView` is an Epoxy controller; no hand-written adapters, no `notifyDataSetChanged`.
+   - Design tokens are `@color/*`, `@dimen/*` and `TextAppearance.App.*`. No raw hex in a layout.
+   - Never hardcode strings; no unnecessary inline comments in Kotlin code.
+   - Never installed alongside `android.md` — the two are the reason the payloads are separate.
+
+3. **`figma.md`** *(each track ships its own)*:
    - Triggers automatically when a Figma URL (`https://www.figma.com/design/...`) or node ID is detected.
    - Routes to the pipeline and names the artefacts each stage owns. The stage ordering lives in `orchestrator.md` and the MCP budget in the analyzer skill — one copy of each, so they cannot drift.
+   - The XML copy names `figma-xml-developer` as stage 3 and carries a short table for reading any Compose vocabulary that survives in a shared reference.
 
-3. **`lean.md`**:
+4. **`lean.md`**:
    - Follows the Decision Ladder: YAGNI -> Reuse First -> Kotlin Stdlib/KTX -> Native Compose -> Shortest Idiomatic Form.
    - Rejects single-impl interfaces and speculative factory boilerplate.
 
@@ -278,9 +326,9 @@ The **`stop-verifier` hook** watches this ledger and prevents the agent from fin
 
 ---
 
-## Figma-to-Jetpack-Compose Workflow
+## Figma-to-Code Workflow
 
-Convert any Figma design into clean, theme-aware Compose code. Four stages, each handing the next a **file** rather than a claim:
+Convert any Figma design into clean, theme-aware Compose code — or XML layouts, see [the `xml` variant](#the-same-pipeline-on-the-xml-track) below. Four stages, each handing the next a **file** rather than a claim:
 
 ```
 Figma link
@@ -299,6 +347,32 @@ Figma link
 
 Deltas route back to the one stage that owns them — spacing and text to stage 3, a missing drawable to stage 2, a wrong spec to stage 1.
 
+### The same pipeline on the `xml` track
+
+Stages 1, 2 and 4 do the same work — a Figma spec, a set of `ic_*.xml` drawables, a device
+comparison. Only their vocabulary and stage 3 differ:
+
+```
+Figma link
+  -> figma-analyzer          -> docs/<feature>/figma-spec.md + figma/ref-*.png
+  -> figma-asset-extractor   -> docs/<feature>/figma-assets.json + res/ + resources
+  -> figma-xml-developer     -> the layouts and Kotlin
+  -> verifier (floor 4)      -> <design> verdict: measured vs. designed
+```
+
+The XML track's spec template asks stage 1 for an Android view tree (`ShapeConstraintLayout`,
+`0dp` + constraints, `@dimen` gaps, the `android:id` each node will expose) rather than a
+Compose one, so stage 3 never has to re-translate the design.
+
+Stage 3 builds `ConstraintLayout` trees, expresses every fill, radius, border, gradient and
+shadow as ShapeView `shape_*` attributes, loads imagery through Glide, and turns repeating
+elements into Epoxy models.
+
+One difference is worth planning for: **XML has no `@Preview`**, so a variant row is only
+ever verified on a device. The spec's §5 therefore carries a "how to reach it on device"
+column instead of a preview flag, and stage 3's report has to name the taps that produce
+each row — otherwise floor 4 checks the default state and nothing else.
+
 ---
 
 ## Developer Workflows and Slash Commands
@@ -316,21 +390,38 @@ Deltas route back to the one stage that owns them — spacing and text to stage 
 
 ## Repository Layout
 
-Everything that ships is an asset under `assets/`, copied into whatever project you point
-`aha init` at. This repository keeps **no `.agents/` of its own** — there is exactly one copy
-of every rule, skill, agent and hook, and it lives in `assets/`.
+Everything that ships is an asset under `assets/<track>/`, copied into whatever project you
+point `aha init` at. This repository keeps **no `.agents/` of its own**.
 
 ```
 AndroidHarnessAGY/
 ├── assets/
-│   ├── .agents/        # the payload: rules, agents, skills, hooks, scripts, mcp_config.json
-│   └── AGENTS.md       # delegation rule, spliced into the target's root AGENTS.md
-├── aha.py              # the installer (stdlib only)
-├── bin/aha.js          # npm shim that finds Python and runs aha.py
-├── evals/              # harness evaluation harness (not shipped)
-├── docs/               # design notes and upstream references (not shipped)
-└── tests/test_aha.py   # install / update / undo round-trip tests
+│   ├── compose/            # the Jetpack Compose payload
+│   │   ├── .agents/        #   rules, agents, skills, hooks, scripts, mcp_config.json
+│   │   └── AGENTS.md       #   delegation rule, spliced into the target's root AGENTS.md
+│   └── xml/                # the Views/XML payload — same shape, different contents
+│       ├── .agents/
+│       └── AGENTS.md
+├── aha.py                  # the installer (stdlib only)
+├── bin/aha.js              # npm shim that finds Python and runs aha.py
+├── evals/                  # harness evaluation harness (not shipped)
+├── docs/                   # design notes and upstream references (not shipped)
+└── tests/test_aha.py       # install / update / undo round-trips, and track separation
 ```
 
-To change the harness, edit the files under `assets/.agents/`, then `aha init` (or `aha update`)
-a scratch project to try them. `aha init` refuses to target this repository itself.
+### Working on two payloads
+
+The trees are deliberately independent — one is installed whole, never layered over the
+other. That means roughly a hundred toolkit-neutral files (every hook, `loop.py`,
+`mcp_config.json`, the Kotlin and tooling skills) exist in both copies.
+
+**A change to a shared file has to be made in both.** `tests/test_aha.py` compares them
+byte-for-byte and fails when they drift, listing every path that diverged, so this is
+caught by running the tests rather than discovered by a user. Files that are *supposed* to
+differ — the UI rules, the roster in `orchestrator.md`, the Figma stage-3 agents, the
+resource-policy and analyzer skills — are listed as exceptions in that test, and adding a
+new intentional divergence means adding it there.
+
+To change the harness, edit the files under `assets/<track>/.agents/`, then `aha init` (or
+`aha update`) a scratch project to try them. `aha init` refuses to target this repository
+itself.

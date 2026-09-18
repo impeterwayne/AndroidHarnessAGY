@@ -197,5 +197,126 @@ class TestAhaExcludeAndUndo(unittest.TestCase):
             self.assertNotIn("# <!-- aha:exclude:start -->", exclude_file.read_text(encoding="utf-8"))
 
 
+class TestTracks(unittest.TestCase):
+    """The two payloads are separate trees; `--track` picks one and only one."""
+
+    ASSETS = AHA_SCRIPT.parent / "assets"
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.target = Path(self.temp_dir.name)
+        subprocess.run(["git", "init"], cwd=self.target, capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=self.target, check=True)
+        subprocess.run(["git", "config", "user.email", "tester@example.com"], cwd=self.target, check=True)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _manifest(self):
+        return json.loads((self.target / ".agents" / ".aha.json").read_text(encoding="utf-8"))
+
+    def _rules(self):
+        return sorted(p.name for p in (self.target / ".agents" / "rules").iterdir())
+
+    def _agents(self):
+        return sorted(p.name for p in (self.target / ".agents" / "agents").iterdir())
+
+    def test_default_track_is_compose(self):
+        res = run_aha("init", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self._manifest()["track"], "compose")
+        self.assertIn("android.md", self._rules())
+        self.assertNotIn("xml.md", self._rules())
+        self.assertIn("figma-compose-developer.md", self._agents())
+        self.assertNotIn("figma-xml-developer.md", self._agents())
+
+    def test_xml_track_installs_only_xml_payload(self):
+        res = run_aha("init", "--track", "xml", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self._manifest()["track"], "xml")
+        self.assertIn("xml.md", self._rules())
+        self.assertNotIn("android.md", self._rules())
+        self.assertIn("figma-xml-developer.md", self._agents())
+        self.assertNotIn("figma-compose-developer.md", self._agents())
+
+        skills = {p.name for p in (self.target / ".agents" / "skills").iterdir()}
+        self.assertIn("shape-view", skills)
+        self.assertIn("image-loading-glide", skills)
+        self.assertIn("android-xml-views", skills)
+        self.assertIn("figma2xml", skills)
+        # Nothing Compose-only leaks in.
+        self.assertFalse(
+            {s for s in skills if s.startswith("compose-")} | {
+                "image-loading-landscapist", "orbit-mvi-feature-builder", "figma2compose",
+            } & skills)
+
+    def test_update_carries_the_track_forward(self):
+        run_aha("init", "--track", "xml", "--profile", "android", "--no-git-exclude", cwd=self.target)
+        res = run_aha("update", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        # A flagless update must not silently swap the project's always-on rules.
+        self.assertEqual(self._manifest()["track"], "xml")
+        self.assertEqual(self._manifest()["profile"], "android")
+        self.assertIn("xml.md", self._rules())
+
+    def test_unknown_track_is_rejected(self):
+        res = run_aha("init", "--track", "flutter", "--no-git-exclude", cwd=self.target)
+        self.assertNotEqual(res.returncode, 0)
+
+    def test_tracks_never_ship_both_ui_rules(self):
+        for track in ("compose", "xml"):
+            rules = {p.name for p in (self.ASSETS / track / ".agents" / "rules").iterdir()}
+            self.assertEqual(
+                len(rules & {"android.md", "xml.md"}), 1,
+                f"{track} must ship exactly one always-on UI rule, has {rules}")
+
+    def test_shared_files_stay_byte_identical(self):
+        """Files common to both trees are duplicated on purpose. Catch the drift."""
+        compose = self.ASSETS / "compose" / ".agents"
+        xml = self.ASSETS / "xml" / ".agents"
+
+        # Deliberately divergent: each states its own toolkit's rules and roster.
+        divergent = {
+            "rules/figma.md",
+            "rules/lean.md",
+            "agents/orchestrator.md",
+            "agents/executor.md",
+            "agents/explore.md",
+            "agents/oracle.md",
+            "agents/verifier.md",
+            "agents/figma-analyzer.md",
+            "agents/figma-asset-extractor.md",
+        }
+        divergent_prefixes = ("skills/figma-design-analyzer/", "skills/figma-asset-extractor/",
+                              "skills/lean/", "skills/code-review/", "skills/kotlin-api-design/",
+                              "skills/kotlin-concurrency-and-flow/")
+
+        mismatched = []
+        for src in compose.rglob("*"):
+            if not src.is_file():
+                continue
+            rel = src.relative_to(compose).as_posix()
+            if rel in divergent or rel.startswith(divergent_prefixes):
+                continue
+            twin = xml / rel
+            if not twin.is_file():
+                continue  # track-specific file, not a shared one
+            if src.read_bytes() != twin.read_bytes():
+                mismatched.append(rel)
+
+        self.assertEqual(
+            mismatched, [],
+            "shared payload files have drifted between tracks:\n  " + "\n  ".join(mismatched))
+
+    def test_hooks_and_loop_engine_are_shared(self):
+        compose = self.ASSETS / "compose" / ".agents"
+        xml = self.ASSETS / "xml" / ".agents"
+        for rel in ("hooks.json", "mcp_config.json", "scripts/loop.py",
+                    "hooks/rule_gate.py", "hooks/write_guard.py", "hooks/device_gate.py",
+                    "hooks/stop_verifier.py", "hooks/intent_gate.py", "hooks/scrcpy_daemon.py"):
+            self.assertEqual(
+                (compose / rel).read_bytes(), (xml / rel).read_bytes(),
+                f"{rel} differs between tracks")
+
 if __name__ == "__main__":
     unittest.main()
