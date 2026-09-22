@@ -1,427 +1,162 @@
-# AndroidHarnessAGY (AHA — Android Harness Antigravity)
+# AndroidHarnessAGY (`aha`)
 
-> **A production-ready agentic engineering harness for Android development with Google Antigravity IDE & CLI (`agy`).**
+> **Production-ready agentic engineering harness for Android development with Google Antigravity IDE & CLI (`agy`).**
 
-**AndroidHarnessAGY** equips Google Antigravity with senior Android engineering guardrails, patterns, and workflows. It packages architectural rules, agent personas, specialized domain skills, deterministic safety hooks, Figma-to-code pipelines, and a durable goal-loop engine into a zero-pollution `.agents/` payload that can be injected into any Android repository via the included `aha` CLI.
+AndroidHarnessAGY equips Antigravity with senior Android engineering guardrails, architectural rules, deterministic safety hooks, and specialized subagents. Everything is injected cleanly into `.agents/` with zero git pollution.
 
-It ships **two independent payloads**, one per UI toolkit — pick with `--track`:
+It provides two independent UI tracks (never merged):
+- **`xml`** (**default**): Views & XML layouts, ViewBinding, [ShapeView](https://github.com/impeterwayne/ShapeView), Glide (`GlideImageView`), Epoxy controllers, and `rules/xml.md`.
+- **`compose`**: Jetpack Compose, `AppTheme` tokens, Landscapist Glide, Orbit MVI, and `rules/android.md`.
 
-| Track | For | UI | Backgrounds | Images | Lists | Figma stage 3 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`compose`** *(default)* | Jetpack Compose projects | `@Composable`, `AppTheme` tokens | Compose `Modifier` / `shapes` | Landscapist `GlideImage` | `LazyColumn` | `figma-compose-developer` |
-| **`xml`** | View / XML projects | layouts + ViewBinding, `TextAppearance.App.*` | **ShapeView** `app:shape_*` | **Glide** (`GlideImageView`) | **Epoxy** controllers | `figma-xml-developer` |
+---
+
+## Global Setup (Clone & Install)
+
+Because the harness is not yet published to the npm registry, clone the repository and install it globally from local source:
 
 ```bash
-aha init                 # Compose harness
-aha init --track xml     # XML harness
-```
+git clone https://github.com/impeterwayne/AndroidHarnessAGY.git
+cd AndroidHarnessAGY
 
-They are separate trees under `assets/`, never merged. What separates them —
-`rules/android.md` versus `rules/xml.md` — is always-on prompt context, so installing both
-would hand the agent two contradictory sets of non-negotiables.
-
----
-
-## Table of Contents
-
-- [Key Capabilities](#key-capabilities)
-- [Global Installation & Quickstart](#global-installation--quickstart)
-  - [1. Install Globally via npm](#1-install-globally-via-npm)
-  - [2. Inject into an Android Project](#2-inject-into-an-android-project)
-  - [3. Installation Profiles](#3-installation-profiles)
-  - [4. Harness Management Commands](#4-harness-management-commands)
-- [System Architecture](#system-architecture)
-  - [1. Deterministic Lifecycle Hooks](#1-deterministic-lifecycle-hooks)
-  - [2. Specialized Agent Personas](#2-specialized-agent-personas)
-  - [3. Domain Skills Catalog](#3-domain-skills-catalog)
-  - [4. Architectural Rules and Guardrails](#4-architectural-rules-and-guardrails)
-  - [5. Durable Goal Loop Engine](#5-durable-goal-loop-engine)
-- [Figma-to-Code Workflow](#figma-to-code-workflow)
-- [Developer Workflows and Slash Commands](#developer-workflows-and-slash-commands)
-- [Repository Layout](#repository-layout)
-
----
-
-## Key Capabilities
-
-- **Clean Architecture & Unidirectional State Enforcement**: Hardened rules ensure stateless UI, unidirectional data flow (Orbit MVI on the Compose track; an `Action`/`SideEffect` contract over `BaseViewModel` on the XML track), and ViewModel decoupling.
-- **Figma-to-Code Pipeline**: Native Figma MCP integration (`figma-mcp-android`) extracts layouts, tokens, and vector drawables (`ic_*.xml`), generating production-grade Jetpack Compose UI — or, on the `xml` track, `ConstraintLayout` trees with ShapeView attributes, Glide imagery and Epoxy lists.
-- **Two Tracks, One Installer**: `assets/compose/` and `assets/xml/` are self-contained payloads. `--track` installs one whole; the toolkit-neutral parts (hooks, `loop.py`, the Kotlin and tooling skills) are duplicated by design and held byte-identical by a test that fails on drift.
-- **Automated PreToolUse & PreInvocation Safety Gates**: Python hooks block comment clutter, catch hardcoded UI strings, prevent raw hex colors, and activate rigour modes autonomously.
-- **Resilient Goal Loop Engine (`loop.py`)**: Structured, append-only ledger for multi-goal workflows that survives LLM context compaction and enforces verified exit criteria.
-- **Lean Engineering Mindset**: Enforces YAGNI (You Aren't Gonna Need It), Kotlin stdlib/KTX reuse, Compose native primitives, and zero speculative scaffolding.
-- **Single-Command Drop-in Packaging (`aha`)**: Painlessly inject, sync, or undo the entire harness across multiple Android projects. Installed files are locally excluded file-by-file in `.git/info/exclude` under a marked block so `git status` remains clean without hiding other `.agents/` files or polluting `.gitignore`. Everything lands in `.agents/`; the only root file is `AGENTS.md`, spliced in as a marked block so an existing one keeps its content.
-
----
-
-## Global Installation & Quickstart
-
-### 1. Install Globally via npm
-
-You can install the harness globally so that `aha` is available anywhere in your terminal:
-
-```bash
-# Install globally from npm (or local repository)
-npm install -g android-harness-agy
-
-# Or from local source during development:
+# Install globally via npm (recommended):
+npm install -g .
+# Or link during local development:
 npm link
 ```
 
-You can also run directly with `npx` without installing:
-
+Verify the CLI is accessible:
 ```bash
-npx android-harness-agy init /path/to/MyAndroidApp
+aha --help
 ```
 
-### 2. Inject into an Android Project
+---
 
-From any directory or directly inside your Android project root:
+## Quickstart
+
+Navigate to your Android project and initialize the harness:
 
 ```bash
-# Inject into current project (target defaults to ., track defaults to compose)
+# Initialize View/XML harness (default)
 aha init
 
-# Or specify a target path
-aha init /path/to/MyAndroidApp
+# Initialize Jetpack Compose harness
+aha init --track compose
 
-# A View/XML project takes the other payload
-aha init /path/to/MyXmlApp --track xml
+# Initialize with a specific profile
+aha init --profile figma
 ```
 
-`--track` is recorded in `.aha.json`, and a flagless `aha update` carries it forward — an
-update never silently swaps a project's always-on rules out from under it.
+### What `aha init` does
+1. **Injects `.agents/`**: Deploys rules, skills, agent personas, deterministic hooks, and MCP configs into your project.
+2. **Slices Delegation Rule into `AGENTS.md`**: Adds marker-delimited instructions at your project root, keeping existing notes intact.
+3. **Local Git Exclusion**: Excludes installed files in `.git/info/exclude` so `git status` stays clean without altering your project's `.gitignore`.
 
-This injects `.agents/` into your target repository and creates an `.aha.json` manifest to track versions, digests, and local edits.
+---
 
-Installed harness files are locally excluded file-by-file in `.git/info/exclude` under an `# <!-- aha:exclude:start -->` marked block. This keeps your `git status` clean without hiding other custom or overlapping files in `.agents/` or polluting your project's `.gitignore`.
-
-It also writes the delegation rule to `AGENTS.md` at the project root, between
-`<!-- aha:orchestrate:start -->` / `<!-- aha:orchestrate:end -->` markers. That rule lives at
-the root rather than in `.agents/rules/` because `AGENTS.md` is read reliably on every turn
-while rule files are not. If your project already has an `AGENTS.md`, the block is appended
-and your content is left alone; `aha update` refreshes only the block, and `aha undo` (or `aha remove`) cleanly
-reverses the installation and restores your original file. Skip it entirely with `--no-agents-md`.
-
-### 3. Installation Profiles
-
-Tailor the harness payload to your project's needs using `--profile`:
-
-Profiles narrow the payload **within** a track. The names mean the same thing in both, so
-muscle memory carries across; only the contents differ.
-
-| Profile | Primary use case | `compose` | `xml` |
-| :--- | :--- | :---: | :---: |
-| **`full`** *(default)* | The whole track | 42 skills, 8 agents, 3 rules | 31 skills, 8 agents, 3 rules |
-| **`android`** | App development, no Figma pipeline | 39 / 5 / 2 | 28 / 5 / 2 |
-| **`figma`** | Design-to-code sprint: spec, assets, UI, on-device conformance | 15 / 6 / 3 | 13 / 6 / 3 |
-| **`minimal`** | Lean engineering, code reviews, goal loops | 12 / 5 / 1 | 12 / 5 / 1 |
-
-```bash
-# Examples:
-aha init --profile android
-aha init --track xml --profile figma
-aha init --profile minimal
-
-# What a track actually contains:
-aha list
-aha list --track xml
-```
-
-### 4. Harness Management Commands
+## CLI Reference
 
 | Command | Description |
 | :--- | :--- |
-| `aha init [target]` | Installs `.agents/` plus the `AGENTS.md` block into `[target]` (default: `.`). Locally excludes installed files file-by-file in `.git/info/exclude`. Safely merges an existing `AGENTS.md`, `hooks.json`, and `mcp_config.json`. |
-| `aha update [target]` | Updates harness files while strictly preserving any local edits you made and refreshing `.git/info/exclude`. |
-| `aha update [target] --prune` | Updates and removes files no longer included in the active profile. |
-| `aha status [target]` | Inspects the target: shows installed version, upstream commits, and drifted files. |
-| `aha undo [target]` | Cleanly reverses `init`: deletes only manifest-tracked files, preserves overlapping user files in `.agents/`, removes entries from `.git/info/exclude`, and unsplices `AGENTS.md`. |
-| `aha undo-init [target]` | Alias for `aha undo`. |
-| `aha remove [target]` | Alias for `aha undo` (protects uncommitted local changes unless `--force`). |
-| `aha list` | Lists all available rules, skills, agents, hooks, and profiles. |
+| `aha init [target]` | Injects harness into `target` (default: `.`, default track: `xml`). |
+| `aha update [target]` | Syncs latest harness files while preserving your local edits. |
+| `aha update [target] --prune` | Updates and removes files omitted from the active profile. |
+| `aha status [target]` | Displays installed version, upstream commits, and drifted files. |
+| `aha undo [target]` | Reverses installation cleanly, restoring `AGENTS.md` and excludes. |
+| `aha list` | Lists all available rules, agents, skills, and hooks. |
 
-#### Granular Component Selection
+Flags: `--track {xml,compose}`, `--profile <name>`, `--skills <names>`, `--agents <names>`, `--rules <names>`, `--no-hooks`, `--no-mcp`, `--dry-run`.
+
+---
+
+## Profiles & Tracks
+
+Select tailored payloads within a track using `--profile <name>`:
+
+| Profile | Use Case | `xml` (Default) | `compose` |
+| :--- | :--- | :---: | :---: |
+| **`full`** *(default)* | Entire track payload | 31 skills, 8 agents, 3 rules | 42 skills, 8 agents, 3 rules |
+| **`android`** | Core Android dev without Figma pipeline | 28 / 5 / 2 | 39 / 5 / 2 |
+| **`figma`** | Design-to-code sprint (spec, assets, UI) | 13 / 6 / 3 | 15 / 6 / 3 |
+| **`minimal`** | Lean review, code health, goal loops | 12 / 5 / 1 | 12 / 5 / 1 |
+
+Inspect track contents anytime with `aha list` or `aha list --track compose`.
+
+---
+
+## Architecture & Guardrails
+
+### 1. Delegation Model (`AGENTS.md`)
+The root conversation session plans and delegates; it never directly edits source files.
+- **`explore`**: Fast repository search, discovery, and file indexing.
+- **`oracle`**: Architecture review, edge cases, and compliance.
+- **`executor`**: Dispatched for code changes (compiles and tests what it writes).
+- **`verifier`**: Aggregates build verification and drives on-device testing via `scrcpy`.
+- **`figma-analyzer` / `figma-asset-extractor` / `figma-xml-developer`** (or `figma-compose-developer`): 4-stage pipeline converting Figma specs into production code.
+
+### 2. Deterministic Safety Hooks
+- **`rule_gate.py` (`PreToolUse`)**:
+  - Rejects inline/block comments in Kotlin code (KDoc allowed).
+  - Enforces `strings.xml`: **never hardcode user-facing strings on Android**.
+  - Enforces `@color/*` tokens (no raw hex).
+  - On XML track, rejects redundant `<shape>`/`<selector>` XML drawables in favor of ShapeView `app:shape_*` attributes.
+- **`write_guard.py` (`PreToolUse`)**: Blocks source file edits from the root session to enforce delegation.
+- **`device_gate.py` & `stop_verifier.py`**: Ensures exclusive device leases (`andrun`) and holds goal loops open until verification passes.
+
+---
+
+## Developer Workflows
+
+Once injected into an Android project, AHA orchestrates everyday engineering through Antigravity:
+
+### 1. Feature Implementation & Bug Fixing
+Prompt Antigravity naturally:
+> *"Implement the Profile screen with ViewBinding and ShapeView"*  
+> *"Fix the race condition in AuthRepository"*
+
+- **Automated Delegation**: The root session plans and dispatches `executor` for code changes and `explore` for codebase discovery.
+- **Safety Gates**: `rule_gate.py` rejects code comments in Kotlin, enforces `strings.xml` (no hardcoded user-facing strings), and blocks raw hex colors.
+- **Verification**: `verifier` runs `./gradlew test` and validates the build before completing.
+
+### 2. Figma-to-Code Pipeline
+Paste any Figma URL or frame ID:
+> *"Implement https://www.figma.com/design/AbCdEf12345/AppUI?node-id=102-456"*
+
+Triggers the 4-stage automated pipeline:
+1. **`figma-analyzer`**: Extracts layout hierarchy, variants, and component specs (`docs/<feature>/figma-spec.md`).
+2. **`figma-asset-extractor`**: Exports SVGs to `ic_*.xml` vector drawables and snaps color/dimen tokens.
+3. **`figma-xml-developer`** (or `figma-compose-developer`): Generates layouts, ShapeView attributes, and ViewModel contracts.
+4. **`verifier`**: Builds APK and validates on-device visual conformance via `scrcpy`.
+
+### 3. High-Rigour Mode (`ultrawork`)
+For complex refactors, multi-module features, or high-stakes bug fixes:
+> *"ultrawork: Refactor network layer to support offline caching"*
+
+- Classifies intent and sets up formal planning.
+- Registers an append-only, durable goal ledger via `loop.py` that survives LLM context compaction.
+- `stop_verifier.py` prevents the agent from finishing until all goals pass with concrete verification evidence.
+
+### 4. Code Review & Lean Audits
+Review changes before merging or clean up technical debt:
+> *"Review my current git diff"* (or `/code-review`)  
+> *"Audit this module for over-engineering"* (or `/lean-audit`)  
+> *"Simplify this diff using stdlib/KTX idioms"* (or `/lean-review`)
+
+- Multi-agent review fans out discovery to `explore` and architectural critique to `oracle`.
+- Enforces lean engineering: YAGNI, Kotlin stdlib/KTX reuse, and zero unnecessary boilerplate.
+
+### 5. On-Device Testing & Emulation
+Verify UI and runtime behavior on real devices:
+> *"Run the app on my connected device and verify the login flow"*
+
+- Managed by `device_gate.py` and `scrcpy_daemon.py` to coordinate exclusive device leases (`andrun`) across sessions.
+
+---
+
+## Contributing & Development
+
+Harness payload assets live under `assets/xml/` and `assets/compose/`. Shared files (hooks, `loop.py`, neutral skills) must remain byte-identical across both tracks.
+
+Run test suite:
 ```bash
-# Install only specific skills or skip hooks
-aha init --skills orbit-mvi-feature-builder,navigation-3,edge-to-edge
-aha init --no-hooks --no-mcp --no-git-exclude
-aha init --dry-run
-aha undo --dry-run
+python -m unittest discover -s tests
 ```
-
----
-
-## System Architecture
-
-### 1. Deterministic Lifecycle Hooks
-
-Antigravity executes Python hooks in `.agents/hooks/` to enforce safety and orchestrate long-running workflows without burning LLM reasoning tokens:
-
-```mermaid
-flowchart TD
-    Prompt([User Prompt]) --> PreInvoc[PreInvocation Hook]
-    PreInvoc -->|Trigger 'ultrawork'| IntentGate[intent_gate.py: Injects Rigour Directive]
-    PreInvoc -->|Daemon Check| ScrcpyDaemon[scrcpy_daemon.py: Manages Device Daemon]
-    
-    IntentGate --> LLM[Antigravity Agent]
-    
-    LLM --> PreTool[PreToolUse Hook]
-    PreTool -->|write_to_file / replace_file| RuleGate[rule_gate.py: Kotlin Linter]
-    RuleGate -->|No comments / No hardcoded strings| WriteDisk[Disk Write Allowed]
-    RuleGate -->|Violation Detected| BlockTool[Denied: Suggests strings.xml / Fix]
-    PreTool -->|run_command touching a device| DeviceGate[device_gate.py: andrun Lease]
-    DeviceGate -->|Lease held or acquired| InjectSerial[Allowed with -s serial injected]
-    DeviceGate -->|Leased by another worktree| BlockDevice[Denied: Queue or report SKIPPED]
-    
-    LLM --> StopCheck[Stop Hook]
-    StopCheck --> StopVerifier[stop_verifier.py: Goal Loop Verifier]
-    StopVerifier -->|Evidence & Exit Codes Valid| Done([Session Finished])
-    StopVerifier -->|Unmet Criteria| Resume[Resumes Agent with Next Goal]
-```
-
-- **`kotlin-rule-gate` (`rule_gate.py` - `PreToolUse`)** — one file, shipped in both tracks, self-configuring from the rules it finds installed:
-  - **Kotlin**: rejects `//` or `/* */` comments (KDoc allowed), hardcoded user-facing strings in Compose params, and hex colours outside `:core:designsystem` and `@Preview`.
-  - **XML layouts**: rejects literal `android:text` / `hint` / `contentDescription` (enforces `@string/…`) and raw hex (enforces `@color/…`). `tools:` attributes are design-time and exempt.
-  - **XML drawables, `xml` track only**: rejects a new `<shape>` / `<selector>` / `<ripple>` and points at ShapeView's `app:shape_*` attributes. Vectors and layer-lists are genuine drawings and pass. Gated on `rules/xml.md` being present, so the Compose track is unaffected.
-  - `python .agents/hooks/rule_gate.py --self-test` runs the 25 fixtures; `--scan <path>` sweeps an existing tree for false positives.
-- **`stop-verifier` (`stop_verifier.py` - `Stop`)**:
-  - Holds active goal loops open until verification evidence and commands (e.g., `./gradlew test`) exit cleanly.
-- **`ultrawork-intent-gate` (`intent_gate.py` - `PreInvocation`)**:
-  - Intercepts prompts containing keywords (`ultrawork`, `ulw`) and injects rigorous step-by-step verification directives.
-- **`scrcpy-daemon` (`scrcpy_daemon.py` - `PreInvocation` / `Stop`)**:
-  - Automatically manages the `scrcpy-cli` daemon lifecycle with reference counting across sessions.
-- **`device-gate` (`device_gate.py` - `PreToolUse` / `Stop`)**:
-  - Makes the `andrun` device lease non-optional, so parallel git worktrees cannot install over each other's verification.
-  - A `run_command` that occupies a device leases one first (`andrun queue ensure`), and the leased serial is injected into `scrcpy-cli` / `adb` via `overwrite` - agents never carry a serial or a lease token.
-  - Denies the forms that pick a device themselves: `adb install`, Gradle `install*` / `connected*` / `uninstall*` tasks, `andrun install` without `--no-build`, and `scrcpy-cli daemon start|stop`.
-  - Releases on `Stop`, refcounted by conversation so a finishing subagent cannot free the device its dispatcher is using. Requires `andrun >= 1.1`.
-  - Lift it for one session: `python .agents/hooks/device_gate.py --off` (`--on`, `--status`, `--self-test`).
-- **`root-write-guard` (`write_guard.py` - `PreToolUse`, enabled)**:
-  - Enforcement half of the delegation rule in `AGENTS.md`. Denies source-file writes (`.kt .kts .java .xml .gradle .py .sh .ps1 .json .toml .properties`) from the root session, so code changes must go through `executor`. Docs, notes and plans are never gated.
-  - Lift it for one session without editing config: `python .agents/hooks/write_guard.py --off` (`--on`, `--status`).
-
----
-
-### 2. Specialized Agent Personas
-
-| Agent | Role | Tools & Capabilities |
-| :--- | :--- | :--- |
-| **`orchestrator`** | Strategic Lead | Decomposes complex requests, creates goal ledgers, coordinates workers, dispatches reviews. |
-| **`explore`** | Code Indexer & Finder | Fast, read-only search using ripgrep, file viewing, and architecture indexing. |
-| **`oracle`** | Architectural Judge | Consultative deep-thinker for reviewing architecture, edge cases, and design compliance. |
-| **`executor`** | Implementer | Every code change: single-file fixes through multi-module features, refactors and migrations. Holds the shell, so it compiles and tests what it writes. |
-| **`verifier`** | Build & Device Gate | Read-only on the repo. Runs the one aggregate Gradle build over a converged change set — per-module compiles do not prove `:app` links — then, for UI work, `installDebug` and drives the real screen via `scrcpy-cli` for launch, screenshots, and a named scenario. Holds Gradle exclusively, so a fan-out ends with it rather than with N concurrent builds in one worktree. |
-| **`figma-analyzer`** | Design Specifier | Stage 1, in both tracks (the XML copy speaks layouts and resources rather than composables and tokens). Component inventory across frames, Auto-Layout mapped to Compose, variant and state matrix, typography, token gaps, prototype reactions. Writes `figma-spec.md` to a fixed template plus a reference PNG per frame. |
-| **`figma-asset-extractor`** | Asset Pipeline | Stage 2. Converts Figma SVGs to VectorDrawables (`ic_*.xml`), exports raster assets, snaps or adds design tokens by a tolerance policy, and records what actually landed in `figma-assets.json`. |
-| **`figma-compose-developer`** | UI Developer (`compose`) | Stage 3 on the Compose track. Stateless Compose screens, Orbit MVI contract, and one `@Preview` per state the design defines. Resolves every resource name against the stage 2 manifest. |
-| **`figma-xml-developer`** | UI Developer (`xml`) | Stage 3 on the XML track. `ConstraintLayout` trees, ShapeView `shape_*` attributes for every fill, radius, border, gradient and shadow, Glide imagery, Epoxy controllers, and the `Action`/`SideEffect` contract. Resolves every resource name against the stage 2 manifest, and reports the taps that reach each variant row — XML has no previews. |
-
----
-
-### 3. Domain Skills Catalog
-
-#### Android & Jetpack Compose *(the `compose` track only)*
-- [`orbit-mvi-feature-builder`](file:///.agents/skills/orbit-mvi-feature-builder/SKILL.md): Implements Orbit MVI features (`ContainerHost`, `UiState`, `SideEffect`).
-- [`navigation-3`](file:///.agents/skills/navigation-3/SKILL.md): Jetpack Navigation 3 scenes, multi-stack flows, and deep link routing.
-- [`edge-to-edge`](file:///.agents/skills/edge-to-edge/SKILL.md): Window insets, IME padding, and system bar styling.
-- [`adaptive`](file:///.agents/skills/adaptive/SKILL.md): Responsive UI for tablets, foldables, desktop, and multi-window modes.
-- [`compose-animations`](file:///.agents/skills/compose-animations/SKILL.md): Motion, transitions, `AnimatedVisibility`, and layout morphing.
-- [`compose-component-design`](file:///.agents/skills/compose-component-design/SKILL.md): Idiomatic, reusable composable API design.
-- [`compose-performance`](file:///.agents/skills/compose-performance/SKILL.md): Recomposition optimization, stability analysis, and phase skipping.
-- [`compose-state-and-effects`](file:///.agents/skills/compose-state-and-effects/SKILL.md): State hoisting, `LaunchedEffect`, and lifecycle collections.
-- [`image-loading-landscapist`](file:///.agents/skills/image-loading-landscapist/SKILL.md): Skydoves Landscapist Glide best practices.
-- [`migrate-xml-views-to-jetpack-compose`](file:///.agents/skills/migrate-xml-views-to-jetpack-compose/SKILL.md): Step-by-step XML-to-Compose migration.
-- [`styles`](file:///.agents/skills/styles/SKILL.md): Design system tokens and dynamic styling in Compose.
-
-#### Android XML Views *(the `xml` track only)*
-- [`android-xml-views`](file:///.agents/skills/android-xml-views/SKILL.md): ViewBinding over `BaseActivity`/`BaseFragment`, the `Action`/`SideEffect` contract, lifecycle-safe collection, Epoxy lists, dialogs, navigation, and module layout. References: [base classes](file:///.agents/skills/android-xml-views/references/base-classes.md), [Epoxy lists](file:///.agents/skills/android-xml-views/references/epoxy-lists.md), [module structure](file:///.agents/skills/android-xml-views/references/module-structure.md).
-- [`shape-view`](file:///.agents/skills/shape-view/SKILL.md): ShapeView (`com.github.impeterwayne:ShapeView`) as the background API — corners, borders, fills, gradients, state colours, ripples and shadows declared inline instead of as `res/drawable` files. References: [attributes](file:///.agents/skills/shape-view/references/attributes.md), [Kotlin API](file:///.agents/skills/shape-view/references/kotlin-api.md), [recipes](file:///.agents/skills/shape-view/references/recipes.md).
-- [`image-loading-glide`](file:///.agents/skills/image-loading-glide/SKILL.md): GlideImageView (`com.github.impeterwayne:GlideImageView`, `com.genesys.glideimageview.GlideImageView`) as the declarative image API — `app:glideSrc` with live Layout Editor preview for drawables/assets, transformations, caching, and programmatic loading via `load()` / `clear()`. References: [GlideImageView](file:///.agents/skills/image-loading-glide/references/glide-image-view.md), [extensions](file:///.agents/skills/image-loading-glide/references/extensions.md), [caching](file:///.agents/skills/image-loading-glide/references/caching.md).
-- [`xml-resource-policy`](file:///.agents/skills/xml-resource-policy/SKILL.md): strings, plurals, colours and night mode, dimens, text appearances, themes, icons, RTL, and the reuse policy.
-- [`figma2xml`](file:///.agents/skills/figma2xml/SKILL.md): Figma spec to XML layouts. Reference: [layout mapping](file:///.agents/skills/figma2xml/references/layout-mapping-xml.md).
-
-#### Figma to Code *(both tracks)*
-- [`figma-design-analyzer`](file:///.agents/skills/figma-design-analyzer/SKILL.md): Deep structural inspection of Figma URLs and node IDs, against the canonical [spec template](file:///.agents/skills/figma-design-analyzer/references/figma-spec-template.md).
-- [`figma-asset-extractor`](file:///.agents/skills/figma-asset-extractor/SKILL.md): SVG-to-VectorDrawable conversion, token snap policy, and the [asset manifest](file:///.agents/skills/figma-asset-extractor/references/asset-manifest.md).
-- [`figma2compose`](file:///.agents/skills/figma2compose/SKILL.md): Full Figma design-to-Compose screen implementation (`compose` track). The XML counterpart is [`figma2xml`](file:///.agents/skills/figma2xml/SKILL.md).
-
-#### Performance & Tooling
-- [`android-profiler`](file:///.agents/skills/android-profiler/SKILL.md): Perfetto system tracing, memory leak diagnosis, and startup optimization.
-- [`gradle-run`](file:///.agents/skills/gradle-run/SKILL.md): Gradle execution, build caching, and failure diagnosis.
-- [`r8-analyzer`](file:///.agents/skills/r8-analyzer/SKILL.md): Proguard/R8 rule optimization and APK size reduction.
-- [`scrcpy`](file:///.agents/skills/scrcpy/SKILL.md): Real device interaction, screenshots, and command automation.
-- [`testing-setup`](file:///.agents/skills/testing-setup/SKILL.md): Compose UI test harnesses, Robolectric, and MockK unit tests.
-- [`play-policy-insights`](file:///.agents/skills/play-policy-insights/SKILL.md): Google Play Store policy and data safety compliance audits.
-
-#### Code Quality, Rigour & Review
-- [`ultrawork`](file:///.agents/skills/ultrawork/SKILL.md): High-rigour execution with formal goal tracking and test-backed proof.
-- [`loop`](file:///.agents/skills/loop/SKILL.md): Durable goal loop driver for context-resilient long-running work.
-- [`code-review`](file:///.agents/skills/code-review/SKILL.md): Multi-agent code review fanning out discovery to `explore` and judgement to `oracle`.
-- [`lean`](file:///.agents/skills/lean/SKILL.md): Minimalist, YAGNI-driven coding philosophy.
-- [`lean-audit`](file:///.agents/skills/lean-audit/SKILL.md): Whole-repo audit for dead code, speculative wrappers, and over-engineering.
-- [`lean-review`](file:///.agents/skills/lean-review/SKILL.md): Fast, line-by-line simplification diff review.
-- [`android-code-indexer`](file:///.agents/skills/android-code-indexer/SKILL.md): Maintains a compact graph of modules, screens, and dependencies.
-- [`android-intent-security`](file:///.agents/skills/android-intent-security/SKILL.md): Audits Android components for Intent redirection vulnerabilities.
-
----
-
-### 4. Architectural Rules and Guardrails
-
-The delegation rule sits in **`AGENTS.md`** at the project root; the domain rules are injected from `.agents/rules/`:
-
-0. **`AGENTS.md`** *(project root, not `.agents/rules/`)*:
-   - The session the human talks to plans and delegates; it does not edit source files.
-   - Classify every message first (understanding / investigation / evaluation / implementation) — only an explicit implementation verb authorises a dispatch.
-   - Roster and routing: `explore` for discovery, `oracle` for judgement, `executor` for every code change, `verifier` for the aggregate build after a fan-out.
-   - Every dispatch carries the six sections (TASK / EXPECTED OUTCOME / MUST DO / MUST NOT DO / CONTEXT / SKILLS); every result is verified with `view_file`.
-   - This re-homes `agents/orchestrator.md`, whose `mainAgent: true` does not load via `agy --agent <name>` in CLI 1.1.22 (see `docs/omo-port/MAPPING.md`). The agent file still binds on the **subagent** path.
-   - **Why the root, not a rule file:** `.agents/rules/*.md` proved unreliable at actually reaching the turn, and this is the one rule whose failure is silent — the session just quietly starts editing code itself. `AGENTS.md` is read on every turn. It ships as a marked block, so a project's own `AGENTS.md` survives injection intact.
-
-1. **`android.md`**:
-   - Maintain Clean Architecture and Orbit MVI patterns.
-   - Keep Composable screens purely stateless (`UiState` + callbacks).
-   - Use `AppTheme` design system tokens (`colorScheme`, `typography`, `spacing`, `shapes`).
-   - Simple 1–2 color icons must be `res/drawable/ic_<name>.xml`.
-   - Dynamic/complex images must use Skydoves Landscapist Glide.
-   - Never hardcode strings — always use `strings.xml`.
-   - No unnecessary inline comments in Kotlin code.
-
-2. **`xml.md`** *(the `xml` track's replacement for `android.md`)*:
-   - Clean Architecture with ViewBinding over `BaseActivity<VB>` / `BaseFragment<VB>`, and an `Action` / `SideEffect` contract on a `BaseViewModel`.
-   - **ShapeView is the background API**: a corner radius, border, fill, gradient, state colour, ripple or shadow is an `app:shape_*` attribute on a `com.genesys.shape` view — not a new `<shape>` / `<selector>` / `<ripple>` in `res/drawable`.
-   - **Glide is the image API**: `GlideImageView` (`com.github.impeterwayne:GlideImageView`, `com.genesys.glideimageview.GlideImageView`) with declarative `app:glideSrc`, always with a placeholder and an error, cleared in the Epoxy model's `unbind()` (`clear()`).
-   - Every `RecyclerView` is an Epoxy controller; no hand-written adapters, no `notifyDataSetChanged`.
-   - Design tokens are `@color/*`, `@dimen/*` and `TextAppearance.App.*`. No raw hex in a layout.
-   - Never hardcode strings; no unnecessary inline comments in Kotlin code.
-   - Never installed alongside `android.md` — the two are the reason the payloads are separate.
-
-3. **`figma.md`** *(each track ships its own)*:
-   - Triggers automatically when a Figma URL (`https://www.figma.com/design/...`) or node ID is detected.
-   - Routes to the pipeline and names the artefacts each stage owns. The stage ordering lives in `orchestrator.md` and the MCP budget in the analyzer skill — one copy of each, so they cannot drift.
-   - The XML copy names `figma-xml-developer` as stage 3 and carries a short table for reading any Compose vocabulary that survives in a shared reference.
-
-4. **`lean.md`**:
-   - Follows the Decision Ladder: YAGNI -> Reuse First -> Kotlin Stdlib/KTX -> Native Compose -> Shortest Idiomatic Form.
-   - Rejects single-impl interfaces and speculative factory boilerplate.
-
----
-
-### 5. Durable Goal Loop Engine
-
-For large refactors or multi-step features, `.agents/scripts/loop.py` provides an append-only, durable state machine stored under `.agents/state/loop/`:
-
-```bash
-# Create structured goals
-python .agents/scripts/loop.py create-goals --session <id> '[{"id":"g1","description":"Refactor Repository layer"},{"id":"g2","description":"Update ViewModel & UI"}]'
-
-# Check status
-python .agents/scripts/loop.py status --session <id>
-
-# Record checkpoint with verification evidence
-python .agents/scripts/loop.py checkpoint --session <id> --goal g1 --status complete --evidence "Unit tests passed"
-```
-
-The **`stop-verifier` hook** watches this ledger and prevents the agent from finishing prematurely if incomplete goals remain.
-
----
-
-## Figma-to-Code Workflow
-
-Convert any Figma design into clean, theme-aware Compose code — or XML layouts, see [the `xml` variant](#the-same-pipeline-on-the-xml-track) below. Four stages, each handing the next a **file** rather than a claim:
-
-```
-Figma link
-  -> figma-analyzer          -> docs/<feature>/figma-spec.md + figma/ref-*.png
-  -> figma-asset-extractor   -> docs/<feature>/figma-assets.json + res/ + tokens
-  -> figma-compose-developer -> the Kotlin
-  -> verifier (floor 4)      -> <design> verdict: measured vs. designed
-```
-
-1. **Provide a Figma URL**:
-   > *"Implement the Profile screen from https://www.figma.com/design/AbCdEf12345/AppUI?node-id=102-456"*
-2. **Stage 1 — spec**: bounded MCP queries only (`get_document` is a hard gate). Produces a component inventory across every frame so a shared card is built once, a variant matrix so loading, empty, error, and dark are not discovered late, token gaps with their nearest existing token, and a reference PNG per frame.
-3. **Stage 2 — assets and tokens**: icons to `res/drawable/ic_*.xml`, raster artwork exported, and each token gap either snapped to an existing token within tolerance or added. Every deviation from the spec is recorded in `figma-assets.json`, which is what stage 3 resolves names against.
-4. **Stage 3 — Compose**: stateless `@Composable` screens wired to Orbit MVI contracts, `AppTheme` tokens throughout, and one `@Preview` per state the design defines.
-5. **Stage 4 — device conformance**: `verifier` installs the APK, drives to each screen, and measures the `ui-dump` bounds against the spec. A screen that compiles, launches, and has the wrong gutter fails here and nowhere else.
-
-Deltas route back to the one stage that owns them — spacing and text to stage 3, a missing drawable to stage 2, a wrong spec to stage 1.
-
-### The same pipeline on the `xml` track
-
-Stages 1, 2 and 4 do the same work — a Figma spec, a set of `ic_*.xml` drawables, a device
-comparison. Only their vocabulary and stage 3 differ:
-
-```
-Figma link
-  -> figma-analyzer          -> docs/<feature>/figma-spec.md + figma/ref-*.png
-  -> figma-asset-extractor   -> docs/<feature>/figma-assets.json + res/ + resources
-  -> figma-xml-developer     -> the layouts and Kotlin
-  -> verifier (floor 4)      -> <design> verdict: measured vs. designed
-```
-
-The XML track's spec template asks stage 1 for an Android view tree (`ShapeConstraintLayout`,
-`0dp` + constraints, `@dimen` gaps, the `android:id` each node will expose) rather than a
-Compose one, so stage 3 never has to re-translate the design.
-
-Stage 3 builds `ConstraintLayout` trees, expresses every fill, radius, border, gradient and
-shadow as ShapeView `shape_*` attributes, loads imagery through Glide, and turns repeating
-elements into Epoxy models.
-
-One difference is worth planning for: **XML has no `@Preview`**, so a variant row is only
-ever verified on a device. The spec's §5 therefore carries a "how to reach it on device"
-column instead of a preview flag, and stage 3's report has to name the taps that produce
-each row — otherwise floor 4 checks the default state and nothing else.
-
----
-
-## Developer Workflows and Slash Commands
-
-| Action | How to Trigger | What Happens |
-| :--- | :--- | :--- |
-| **Full Rigour Mode** | Type `/ultrawork <task>` or use the word `ultrawork` | Injects formal planning, registers goal loops, dispatches agents, and requires test-proven verification. |
-| **Comprehensive Code Review** | Type `/code-review` | Spawns `explore` agents across modified modules and asks `oracle` to review architecture and security. |
-| **Over-Engineering Audit** | Type `/lean-audit` | Scans the repository for unnecessary boilerplate, dead wrappers, and speculative abstractions. |
-| **Diff Simplification** | Type `/lean-review` | Inspects the current git diff and proposes shorter, stdlib-first implementations. |
-| **Interactive Plan Alignment** | Type `/grill-me` | Conducts a design interview to clarify requirements before writing code. |
-| **Continuous Goal Loop** | Type `/goal <objective>` | Runs an unbroken, evidence-bound goal execution loop. |
-
----
-
-## Repository Layout
-
-Everything that ships is an asset under `assets/<track>/`, copied into whatever project you
-point `aha init` at. This repository keeps **no `.agents/` of its own**.
-
-```
-AndroidHarnessAGY/
-├── assets/
-│   ├── compose/            # the Jetpack Compose payload
-│   │   ├── .agents/        #   rules, agents, skills, hooks, scripts, mcp_config.json
-│   │   └── AGENTS.md       #   delegation rule, spliced into the target's root AGENTS.md
-│   └── xml/                # the Views/XML payload — same shape, different contents
-│       ├── .agents/
-│       └── AGENTS.md
-├── aha.py                  # the installer (stdlib only)
-├── bin/aha.js              # npm shim that finds Python and runs aha.py
-├── evals/                  # harness evaluation harness (not shipped)
-├── docs/                   # design notes and upstream references (not shipped)
-└── tests/test_aha.py       # install / update / undo round-trips, and track separation
-```
-
-### Working on two payloads
-
-The trees are deliberately independent — one is installed whole, never layered over the
-other. That means roughly a hundred toolkit-neutral files (every hook, `loop.py`,
-`mcp_config.json`, the Kotlin and tooling skills) exist in both copies.
-
-**A change to a shared file has to be made in both.** `tests/test_aha.py` compares them
-byte-for-byte and fails when they drift, listing every path that diverged, so this is
-caught by running the tests rather than discovered by a user. Files that are *supposed* to
-differ — the UI rules, the roster in `orchestrator.md`, the Figma stage-3 agents, the
-resource-policy and analyzer skills — are listed as exceptions in that test, and adding a
-new intentional divergence means adding it there.
-
-To change the harness, edit the files under `assets/<track>/.agents/`, then `aha init` (or
-`aha update`) a scratch project to try them. `aha init` refuses to target this repository
-itself.

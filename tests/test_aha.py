@@ -221,14 +221,14 @@ class TestTracks(unittest.TestCase):
     def _agents(self):
         return sorted(p.name for p in (self.target / ".agents" / "agents").iterdir())
 
-    def test_default_track_is_compose(self):
+    def test_default_track_is_xml(self):
         res = run_aha("init", "--no-git-exclude", cwd=self.target)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(self._manifest()["track"], "compose")
-        self.assertIn("android.md", self._rules())
-        self.assertNotIn("xml.md", self._rules())
-        self.assertIn("figma-compose-developer.md", self._agents())
-        self.assertNotIn("figma-xml-developer.md", self._agents())
+        self.assertEqual(self._manifest()["track"], "xml")
+        self.assertIn("xml.md", self._rules())
+        self.assertNotIn("android.md", self._rules())
+        self.assertIn("figma-xml-developer.md", self._agents())
+        self.assertNotIn("figma-compose-developer.md", self._agents())
 
     def test_xml_track_installs_only_xml_payload(self):
         res = run_aha("init", "--track", "xml", "--no-git-exclude", cwd=self.target)
@@ -250,14 +250,31 @@ class TestTracks(unittest.TestCase):
                 "image-loading-landscapist", "orbit-mvi-feature-builder", "figma2compose",
             } & skills)
 
+    def test_compose_track_installs_only_compose_payload(self):
+        res = run_aha("init", "--track", "compose", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self._manifest()["track"], "compose")
+        self.assertIn("android.md", self._rules())
+        self.assertNotIn("xml.md", self._rules())
+        self.assertIn("figma-compose-developer.md", self._agents())
+        self.assertNotIn("figma-xml-developer.md", self._agents())
+
+        skills = {p.name for p in (self.target / ".agents" / "skills").iterdir()}
+        self.assertIn("orbit-mvi-feature-builder", skills)
+        self.assertIn("image-loading-landscapist", skills)
+        self.assertIn("figma2compose", skills)
+        # Nothing XML-only leaks in.
+        self.assertFalse(
+            {"shape-view", "image-loading-glide", "android-xml-views", "figma2xml"} & skills)
+
     def test_update_carries_the_track_forward(self):
-        run_aha("init", "--track", "xml", "--profile", "android", "--no-git-exclude", cwd=self.target)
+        run_aha("init", "--track", "compose", "--profile", "android", "--no-git-exclude", cwd=self.target)
         res = run_aha("update", "--no-git-exclude", cwd=self.target)
         self.assertEqual(res.returncode, 0, res.stderr)
         # A flagless update must not silently swap the project's always-on rules.
-        self.assertEqual(self._manifest()["track"], "xml")
+        self.assertEqual(self._manifest()["track"], "compose")
         self.assertEqual(self._manifest()["profile"], "android")
-        self.assertIn("xml.md", self._rules())
+        self.assertIn("android.md", self._rules())
 
     def test_unknown_track_is_rejected(self):
         res = run_aha("init", "--track", "flutter", "--no-git-exclude", cwd=self.target)

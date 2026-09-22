@@ -31,8 +31,8 @@ tracked by git.
     python aha.py remove    [target]  alias for undo
     python aha.py list                available components and profiles
 
-    aha init --track xml              a View/XML project
-    aha init                          Compose (the default)
+    aha init                          Views and XML layouts (the default)
+    aha init --track compose          Jetpack Compose
 
 Stdlib only. Run `python aha.py <command> --help` for flags.
 """
@@ -58,8 +58,8 @@ from pathlib import Path
 # `tests/test_aha.py` asserts they stay byte-identical and fails on drift.
 REPO_ROOT = Path(__file__).resolve().parent
 ASSETS_ROOT = REPO_ROOT / "assets"
-TRACKS = ("compose", "xml")
-DEFAULT_TRACK = "compose"
+TRACKS = ("xml", "compose")
+DEFAULT_TRACK = "xml"
 
 # Rebound by select_track() before any command touches them.
 SOURCE_ROOT = ASSETS_ROOT / DEFAULT_TRACK

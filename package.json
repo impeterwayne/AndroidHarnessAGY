@@ -19,7 +19,11 @@
   "keywords": [
     "antigravity",
     "android",
-    "agents",
+    "xml",
+    "views",
+    "shapeview",
+    "glide",
+    "epoxy",
     "compose",
     "orbit-mvi",
     "figma",
