@@ -1,6 +1,13 @@
 ---
 name: translate-strings
-description: "Automatically translate and localize all default Android strings.xml resources across project modules into pre-defined or user-specified target language codes using the LLM's direct translation capabilities without external scripts. Preserves existing translations, handles Android XML escaping rules (\', \", &amp;, &lt;, &gt;, \@, \?), format placeholders (%1$s, %2$d), plurals, string-arrays, and translatable='false' attributes. Trigger when the user asks to translate strings, localize the app, generate translations, or mentions @translate-strings, @translatestring, @translate-string, or @android-localization."
+description: >-
+  Automatically translate and localize all default Android strings.xml resources across
+  project modules into pre-defined or user-specified target language codes using the LLM's
+  direct translation capabilities without external scripts. Preserves existing translations,
+  handles Android XML escaping rules (apostrophes, quotes, &amp;, &lt;, &gt;, @, ?),
+  format placeholders (%1$s, %2$d), plurals, string-arrays, and translatable="false" attributes.
+  Trigger when the user asks to translate strings, localize the app, generate translations,
+  or mentions @translate-strings, @translatestring, @translate-string, or @android-localization.
 ---
 
 # 🌐 Android Localization & Translation Skill (`translate-strings`)
@@ -57,7 +64,7 @@ graph TD
     B --> C[3. For each target language directory values-lang]
     C --> D[4. Read existing values-lang/strings.xml if present to preserve custom edits]
     D --> E[5. Perform LLM translation for missing/updated strings]
-    E --> F[6. Apply strict Android XML escaping & formatting rules]
+    E --> F[6. Apply strict Android XML escaping, tag form preservation & formatting rules]
     F --> G[7. Write output XML file to values-lang/strings.xml]
     G --> H[8. Validate XML syntax & placeholder parity]
     H --> I[9. Generate summary report of translated files & keys]
@@ -96,7 +103,7 @@ For each target language:
   - **Translate only new or modified strings**.
   - Remove obsolete keys that no longer exist in the base `values/strings.xml`.
 
-### 4. Strict Android XML Escaping & Formatting Rules
+### 4. Strict Android XML Escaping & Tag Formatting Rules
 
 Ensure full compliance with Android AAPT / Resource compiler constraints:
 
@@ -106,11 +113,22 @@ Ensure full compliance with Android AAPT / Resource compiler constraints:
 | **Double Quotes** (`"`) | Escape with backslash `\"` | `Select "Next"` | `Sélectionnez \"Suivant\"` |
 | **Ampersand** (`&`) | Escape with `&amp;` | `Terms & Conditions` | `Điều khoản &amp; Điều kiện` |
 | **Angle Brackets** (`<`, `>`) | Escape with `&lt;` and `&gt;` | `<5 minutes` | `&lt; 5 minutes` |
-| **HTML Styling Tags** | Preserve tags (`<b>`, `<i>`, `<u>`, `<a>`, `<tt>`, `<font>`) | `<b>Bold</b> text` | `<b>Texte en gras</b>` |
 | **Starting `@` or `?`** | Escape with `\@` or `\?` (prevents Android resource ref lookup) | `@username` | `\@nom_utilisateur` |
 | **Percent Sign (`%`)** | Standalone `%` without placeholders must be `%%` or set `formatted="false"` | `50% off` | `50%% de descuento` or `formatted="false"` |
 | **Placeholders** (`%s`, `%d`, `%1$s`, `%2$d`, `%.2f`) | **Never translate specifiers**. Adjust positional order for target grammar | `Page %1$d of %2$d` | `Trang %1$d / %2$d` |
 | **Newlines & Whitespace** | Keep explicit `\n` or `\t`. Wrap in quotes if leading/trailing whitespace is required | `"  Spacing  "` | `"  Espaciado  "` |
+
+#### 🏷️ Tag Form & HTML Styling Preservation Rules
+Preserve the exact form of tags present in the source string:
+- **Raw HTML tags vs Escaped HTML entities**:
+  - If the source string uses **raw XML tags** (e.g. `<b>...</b>`, `<i>...</i>`, `<u>...</u>`, `<a>...</a>`, `<font>...</font>`), preserve them as **raw XML tags** in the translation.
+  - If the source string uses **entity-escaped tags** (e.g. `&lt;u&gt;...&lt;/u&gt;` or `&lt;b&gt;...&lt;/b&gt;`), preserve them **strictly as entity-escaped tags**. Do NOT convert them into raw XML tags `<...>`, and do NOT convert raw tags into escaped tags.
+- **CDATA Blocks (`<![CDATA[...]]>`)**:
+  - If the source string wraps content inside `<![CDATA[...]]>`, keep the CDATA wrapper intact and preserve the inner HTML tags without XML escaping.
+- **XLIFF Replacement Tags (`<xliff:g>`)**:
+  - If the source string uses `<xliff:g id="..." example="...">%1$s</xliff:g>`, keep the `<xliff:g>` tag, its attributes (`id`, `example`), and inner placeholder untouched.
+- **Self-closing / Void Tags**:
+  - Preserve tags like `<br/>` or `<br>` exactly in their source form.
 
 ### 5. Handling Plurals (`<plurals>`) & String Arrays (`<string-array>`)
 
@@ -136,6 +154,7 @@ Ensure full compliance with Android AAPT / Resource compiler constraints:
 ### 7. Validation & Parity Check
 
 - **Static XML Syntax Check**: Verify all tags are properly closed, attributes are valid, and XML entities (`&amp;`, `&lt;`, `&gt;`) are escaped.
+- **Tag Parity Check**: Ensure every open/close tag pair in the source string is matched in the translation with identical tag naming and form (raw vs entity-escaped).
 - **Placeholder Count & Type Check**: Verify that every format specifier in the source string (e.g., `%1$s`, `%2$d`) exists in the localized string.
 - **Apostrophe Check**: Ensure no unescaped apostrophes (`'`) remain in the values.
 - **Compilation Check**: If Android SDK and Gradle build environment are available, run `./gradlew assembleDebug` or lint to confirm resource compilation. If the Android SDK is not installed in the environment, rely on rigorous static XML and regex validation.
@@ -148,3 +167,4 @@ Ensure full compliance with Android AAPT / Resource compiler constraints:
 2. **No Placeholder / Stub Comments**: Never write `<!-- TODO: Translate -->` or leave untranslated stub strings. Every translatable key must be fully translated.
 3. **Preserve Resource Names**: Never modify `<string name="...">` identifiers.
 4. **Preserve Translatable Attributes**: Respect `translatable="false"` and do not output them into localized directories.
+5. **Preserve Tag Form**: Never alter the form of tags (never turn `&lt;u&gt;` into `<u>` or `<u>` into `&lt;u&gt;`).
