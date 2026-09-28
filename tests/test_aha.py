@@ -335,5 +335,167 @@ class TestTracks(unittest.TestCase):
                 (compose / rel).read_bytes(), (xml / rel).read_bytes(),
                 f"{rel} differs between tracks")
 
+
+class TestClaudePlatform(unittest.TestCase):
+    AGY_TOOLS = ("view_file", "write_to_file", "replace_file_content", "grep_search",
+                 "list_dir", "run_command", "invoke_subagent", "send_message", "manage_subagents")
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.target = Path(self.temp_dir.name)
+        subprocess.run(["git", "init"], cwd=self.target, capture_output=True, check=True)
+        self.claude = self.target / ".claude"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def init(self, *extra):
+        res = run_aha("init", "--platform", "claude", *extra, cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        return res
+
+    def frontmatter(self, agent):
+        text = (self.claude / "agents" / f"{agent}.md").read_text(encoding="utf-8")
+        return text.split("---")[1]
+
+    def test_installs_into_claude_layout_without_git_exclude(self):
+        self.init()
+        self.assertTrue((self.claude / ".aha.json").is_file())
+        self.assertTrue((self.claude / "skills" / "lean" / "SKILL.md").is_file())
+        self.assertTrue((self.claude / "rules" / "xml.md").is_file())
+        self.assertTrue((self.claude / "hooks" / "claude_adapter.py").is_file())
+        self.assertFalse((self.claude / "hooks.json").exists())
+        self.assertFalse((self.target / ".agents").exists())
+        self.assertFalse((self.target / "AGENTS.md").exists())
+
+        exclude = self.target / ".git" / "info" / "exclude"
+        self.assertNotIn("aha:exclude", exclude.read_text(encoding="utf-8") if exclude.is_file() else "")
+        status = subprocess.run(["git", "status", "--porcelain", "-uall"], cwd=self.target,
+                                capture_output=True, text=True, check=True).stdout
+        self.assertIn(".claude/agents/executor.md", status)
+        self.assertIn("CLAUDE.md", status)
+
+    def test_subagents_use_sonnet_and_planners_opus(self):
+        self.init()
+        for agent in ("executor", "explore", "verifier", "figma-analyzer"):
+            self.assertIn("model: sonnet", self.frontmatter(agent), agent)
+        for agent in ("orchestrator", "oracle"):
+            self.assertIn("model: opus", self.frontmatter(agent), agent)
+        executor = self.frontmatter("executor")
+        self.assertIn("tools: Read, Write, Edit, Grep, Glob, Bash", executor)
+        self.assertNotIn("subagent:", executor)
+        self.assertIn("tools: Read, Grep, Glob, Agent", self.frontmatter("orchestrator"))
+        self.assertNotIn("mainAgent", self.frontmatter("orchestrator"))
+        self.assertNotIn("tools:", self.frontmatter("figma-analyzer"))  # needs MCP tools
+
+    def test_subagent_model_flag_is_carried_by_update(self):
+        self.init("--subagent-model", "haiku")
+        self.assertIn("model: haiku", self.frontmatter("executor"))
+        self.assertIn("model: opus", self.frontmatter("oracle"))
+        res = run_aha("update", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("model: haiku", self.frontmatter("executor"))
+
+    def test_rendered_text_speaks_claude(self):
+        self.init()
+        doc = (self.target / "CLAUDE.md").read_text(encoding="utf-8")
+        self.assertIn("<!-- aha:orchestrate:start -->", doc)
+        for token in self.AGY_TOOLS + (".agents/", "hooks.json", "`Subagents`"):
+            self.assertNotIn(token, doc)
+        for rel in ("agents/executor.md", "rules/xml.md", "skills/ultrawork/SKILL.md"):
+            text = (self.claude / rel).read_text(encoding="utf-8")
+            self.assertNotIn(".agents/", text, rel)
+
+    def test_settings_and_mcp_merge_and_undo_restores_them(self):
+        self.claude.mkdir()
+        user_settings = {"permissions": {"allow": ["Bash(ls)"]},
+                         "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}}
+        (self.claude / "settings.json").write_text(json.dumps(user_settings), encoding="utf-8")
+        (self.target / ".mcp.json").write_text(json.dumps({"mcpServers": {"mine": {"command": "x"}}}),
+                                               encoding="utf-8")
+        (self.target / "CLAUDE.md").write_text("# Mine\n", encoding="utf-8")
+        self.init()
+
+        settings = json.loads((self.claude / "settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(settings["permissions"], user_settings["permissions"])
+        commands = [h["command"] for entries in settings["hooks"].values()
+                    for e in entries for h in e["hooks"]]
+        self.assertIn("echo mine", commands)
+        self.assertTrue(any("claude_adapter.py\" PreToolUse write_guard.py" in c for c in commands))
+        self.assertTrue(any("SessionStart" in c for c in commands))
+        mcp = json.loads((self.target / ".mcp.json").read_text(encoding="utf-8"))
+        self.assertIn("mine", mcp["mcpServers"])
+        self.assertIn("figma-mcp-android", mcp["mcpServers"])
+
+        # A second update must not stack a second copy of every hook.
+        run_aha("update", cwd=self.target)
+        again = json.loads((self.claude / "settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(again, settings)
+
+        res = run_aha("undo", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(json.loads((self.claude / "settings.json").read_text(encoding="utf-8")),
+                         user_settings)
+        self.assertEqual(json.loads((self.target / ".mcp.json").read_text(encoding="utf-8")),
+                         {"mcpServers": {"mine": {"command": "x"}}})
+        self.assertEqual((self.target / "CLAUDE.md").read_text(encoding="utf-8"), "# Mine\n")
+        self.assertFalse((self.claude / "agents").exists())
+
+    def test_existing_claude_files_are_kept(self):
+        mine = self.claude / "agents" / "executor.md"
+        mine.parent.mkdir(parents=True)
+        mine.write_text("my own executor\n", encoding="utf-8")
+        res = self.init()
+        self.assertIn("kept yours", res.stdout)
+        self.assertEqual(mine.read_text(encoding="utf-8"), "my own executor\n")
+        run_aha("undo", cwd=self.target)
+        self.assertEqual(mine.read_text(encoding="utf-8"), "my own executor\n")
+
+    def test_both_platforms_side_by_side(self):
+        self.assertEqual(run_aha("init", "--no-git-exclude", cwd=self.target).returncode, 0)
+        self.init()
+        self.assertNotEqual(run_aha("status", cwd=self.target).returncode, 0)  # ambiguous
+        res = run_aha("undo", "--platform", "claude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertTrue((self.target / ".agents" / ".aha.json").is_file())
+        self.assertTrue((self.target / "AGENTS.md").is_file())
+
+    def adapter(self, *argv, payload):
+        res = subprocess.run([sys.executable, str(self.claude / "hooks" / "claude_adapter.py"), *argv],
+                             input=json.dumps(payload), capture_output=True, text=True,
+                             env={**os.environ, "CLAUDE_PROJECT_DIR": str(self.target)})
+        self.assertEqual(res.returncode, 0, res.stderr)
+        return json.loads(res.stdout)
+
+    def test_adapter_translates_hook_contract(self):
+        self.init()
+        kt = str(self.target / "app" / "A.kt")
+        write = {"session_id": "s1", "tool_name": "Write",
+                 "tool_input": {"file_path": kt, "content": "fun a() = 1\n"}}
+        denied = self.adapter("PreToolUse", "write_guard.py", payload=write)
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("Agent(subagent_type='executor')",
+                      denied["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertEqual(self.adapter("PreToolUse", "write_guard.py",
+                                      payload={**write, "agent_type": "executor"}), {})
+
+        edit = {"session_id": "s1", "tool_name": "Edit",
+                "tool_input": {"file_path": kt, "old_string": "1", "new_string": "2 // why"}}
+        linted = self.adapter("PreToolUse", "rule_gate.py", payload=edit)
+        self.assertEqual(linted["hookSpecificOutput"]["permissionDecision"], "deny")
+        clean = {**edit, "tool_input": {**edit["tool_input"], "new_string": "2"}}
+        self.assertEqual(self.adapter("PreToolUse", "rule_gate.py", payload=clean), {})
+
+        armed = self.adapter("UserPromptSubmit", "intent_gate.py",
+                             payload={"session_id": "s1", "prompt": "ultrawork: fix login"})
+        context = armed["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(".claude/skills/ultrawork/SKILL.md", context)
+        self.assertNotIn("view_file", context)
+        self.assertEqual(self.adapter("UserPromptSubmit", "intent_gate.py",
+                                      payload={"session_id": "s1", "prompt": "fix login"}), {})
+        self.assertEqual(self.adapter("Stop", "stop_verifier.py", payload={"session_id": "s1"}), {})
+        self.assertFalse(list(self.claude.rglob("__pycache__")))
+
+
 if __name__ == "__main__":
     unittest.main()

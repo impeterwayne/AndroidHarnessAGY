@@ -44,12 +44,26 @@ aha init --track compose
 
 # Initialize with a specific profile
 aha init --profile figma
+
+# Initialize for Claude Code instead of Antigravity
+aha init --platform claude
 ```
 
 ### What `aha init` does
 1. **Injects `.agents/`**: Deploys rules, skills, agent personas, deterministic hooks, and MCP configs into your project.
 2. **Slices Delegation Rule into `AGENTS.md`**: Adds marker-delimited instructions at your project root, keeping existing notes intact.
 3. **Local Git Exclusion**: Excludes installed files in `.git/info/exclude` so `git status` stays clean without altering your project's `.gitignore`.
+
+### Claude Code (`--platform claude`)
+The same track, installed for Claude Code:
+- **`.claude/`**: skills, rules (`.claude/rules/*.md` load always), agents, and hooks. Paths and tool names are rewritten for Claude (`view_file` -> `Read`, `invoke_subagent` -> `Agent`, ...).
+- **`CLAUDE.md`**: the delegation rule, spliced in as a marked block, like `AGENTS.md`.
+- **`.claude/settings.json`**: hooks are merged in and run through `hooks/claude_adapter.py`, which converts Claude's hook payloads for the unchanged Antigravity scripts. Your own settings and hooks are kept.
+- **`.mcp.json`**: harness MCP servers are added; servers you already have win.
+- **Models**: subagents are pinned to `sonnet` (`--subagent-model` to change it). `orchestrator` and `oracle` stay on `opus`. Run `claude --agent orchestrator` to plan on Opus in the main session.
+- **No git exclusion**: nothing is written to `.git/info/exclude`. Commit `.claude/`, `CLAUDE.md` and `.mcp.json` so your team shares the harness.
+
+Both platforms can be installed side by side. `update`, `status` and `undo` act on whichever one is installed; if both are, pass `--platform`.
 
 ---
 
@@ -64,7 +78,7 @@ aha init --profile figma
 | `aha undo [target]` | Reverses installation cleanly, restoring `AGENTS.md` and excludes. |
 | `aha list` | Lists all available rules, agents, skills, and hooks. |
 
-Flags: `--track {xml,compose}`, `--profile <name>`, `--skills <names>`, `--agents <names>`, `--rules <names>`, `--no-hooks`, `--no-mcp`, `--dry-run`.
+Flags: `--platform {antigravity,claude}`, `--subagent-model <model>`, `--track {xml,compose}`, `--profile <name>`, `--skills <names>`, `--agents <names>`, `--rules <names>`, `--no-hooks`, `--no-mcp`, `--dry-run`.
 
 ---
 

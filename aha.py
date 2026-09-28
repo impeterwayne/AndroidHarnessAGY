@@ -23,6 +23,12 @@ Installed files are excluded individually in `.git/info/exclude` under a marked
 block on `init` and `update`, leaving any overlapping or custom files in `.agents/`
 tracked by git.
 
+`--platform claude` installs the same track for Claude Code instead: `.claude/`
+(skills, rules, agents, hooks), `CLAUDE.md`, hooks wired into `.claude/settings.json`
+through `hooks/claude_adapter.py`, MCP servers merged into `.mcp.json`. Nothing is
+git-excluded -- a Claude install is meant to be committed. Subagents are pinned to
+`--subagent-model` (default sonnet); orchestrator and oracle stay on opus.
+
     python aha.py init      [target]  copy the selected track into [target] (default: .)
     python aha.py update    [target]  re-copy, keeping locally edited files
     python aha.py status    [target]  what is installed, and what drifted
@@ -33,6 +39,7 @@ tracked by git.
 
     aha init                          Views and XML layouts (the default)
     aha init --track compose          Jetpack Compose
+    aha init --platform claude        Claude Code instead of Antigravity
 
 Stdlib only. Run `python aha.py <command> --help` for flags.
 """
@@ -44,6 +51,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -80,6 +88,55 @@ EXCLUDE_BLOCK_START = "# <!-- aha:exclude:start -->"
 EXCLUDE_BLOCK_END = "# <!-- aha:exclude:end -->"
 LEGACY_EXCLUDE_BLOCK_START = "# <!-- oma:exclude:start -->"
 LEGACY_EXCLUDE_BLOCK_END = "# <!-- oma:exclude:end -->"
+
+# Where the harness lands in the target, and which root doc carries the delegation
+# rule. Rebound by select_platform() alongside ROOT_DOC / ROOT_DOC_KEY above.
+PLATFORMS = ("antigravity", "claude")
+DEFAULT_PLATFORM = "antigravity"
+PLATFORM = DEFAULT_PLATFORM
+HARNESS_DIR = ".agents"
+PLATFORM_LAYOUT = {
+    "antigravity": (".agents", "AGENTS.md"),
+    "claude": (".claude", "CLAUDE.md"),
+}
+
+# Claude Code only. Files that exist for Claude and not for Antigravity, keyed by
+# their path under `.claude/`.
+CLAUDE_OVERLAY = ASSETS_ROOT / "claude"
+CLAUDE_ADAPTER = "hooks/claude_adapter.py"
+CLAUDE_SETTINGS = "settings.json"
+CLAUDE_MCP = ".mcp.json"
+# Planning stays on the strongest model; every worker defaults to --subagent-model.
+CLAUDE_AGENT_MODELS = {"orchestrator": "opus", "oracle": "opus"}
+DEFAULT_SUBAGENT_MODEL = "sonnet"
+SUBAGENT_MODEL = DEFAULT_SUBAGENT_MODEL
+CLAUDE_TOOLS = {
+    "view_file": "Read",
+    "write_to_file": "Write",
+    "replace_file_content": "Edit",
+    "multi_replace_file_content": "Edit",
+    "grep_search": "Grep",
+    "list_dir": "Glob",
+    "run_command": "Bash",
+    "invoke_subagent": "Agent",
+}
+# Prose renames on top of CLAUDE_TOOLS for text the agent reads.
+CLAUDE_PROSE = {**CLAUDE_TOOLS, "send_message": "SendMessage",
+                "manage_subagents": "background agents"}
+CLAUDE_PROSE_RE = re.compile(r"\b(" + "|".join(sorted(CLAUDE_PROSE, key=len, reverse=True)) + r")\b")
+AGENTS_PATH_RE = re.compile(r"(?<![\w.])\.agents(?=[/`\s'\")]|$)")
+# Antigravity-only sentences in the root doc, and what Claude Code should read instead.
+CLAUDE_ROOT_DOC_EDITS = (
+    ("`Subagents` is an array, so N parallel spawns are one call.",
+     "Several `Agent` calls in one message run in parallel, so N spawns are one turn."),
+    ("You have no shell, so you cannot reproduce one either.",
+     "Do not run Gradle yourself either — one shell holds it at a time."),
+    ("`hooks.json` (deterministic gates)", "`settings.json` hooks (deterministic gates)"),
+    ("Polling `manage_subagents`", "Polling background agents"),
+)
+# Antigravity hook events and the Claude Code events that carry the same moment.
+CLAUDE_EVENTS = {"PreToolUse": "PreToolUse", "PreInvocation": "UserPromptSubmit", "Stop": "Stop"}
+TEXT_SUFFIXES = {".md", ".py", ".json", ".toml", ".yaml", ".yml", ".csv", ".txt", ".pftxt"}
 
 # Directories and files that are development scaffolding for the harness repo
 # itself and have no business in a target project.
@@ -210,6 +267,27 @@ def select_track(track: str) -> None:
         die(f"no {SOURCE_AGENTS} -- run this from the harness repo")
 
 
+def select_platform(platform: str) -> None:
+    """Point the installer at one agent host: Antigravity or Claude Code."""
+    global PLATFORM, HARNESS_DIR, ROOT_DOC, ROOT_DOC_KEY
+    if platform not in PLATFORMS:
+        die(f"unknown platform {platform!r} (have: {', '.join(PLATFORMS)})")
+    PLATFORM = platform
+    HARNESS_DIR, ROOT_DOC = PLATFORM_LAYOUT[platform]
+    ROOT_DOC_KEY = "../" + ROOT_DOC
+
+
+def detect_platform(target: Path, given: str | None) -> str:
+    """The platform a flag-less update/status/undo acts on: whichever is installed."""
+    if given:
+        return given
+    installed = [p for p, (d, _) in PLATFORM_LAYOUT.items()
+                 if (target / d / MANIFEST_NAME).is_file() or (target / d / LEGACY_MANIFEST_NAME).is_file()]
+    if len(installed) > 1:
+        die(f"both {' and '.join(installed)} harnesses are installed -- pass --platform")
+    return installed[0] if installed else DEFAULT_PLATFORM
+
+
 def source_commit() -> str:
     try:
         out = subprocess.run(
@@ -253,6 +331,86 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: fh.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+# --------------------------------------------------------------------------
+# rendering: the bytes a file installs as on the selected platform
+# --------------------------------------------------------------------------
+
+def source_path(rel: str) -> Path:
+    if PLATFORM == "claude" and (CLAUDE_OVERLAY / rel).is_file():
+        return CLAUDE_OVERLAY / rel
+    return SOURCE_AGENTS / rel
+
+
+def claude_text(text: str, prose: bool) -> str:
+    """Repoint `.agents/` at `.claude/`; in prose, also rename Antigravity tools."""
+    text = AGENTS_PATH_RE.sub(".claude", text)
+    if prose:
+        text = CLAUDE_PROSE_RE.sub(lambda m: CLAUDE_PROSE[m.group(1)], text)
+    return text
+
+
+def claude_agent(text: str, name: str) -> str:
+    """Rewrite an Antigravity agent's frontmatter into a Claude Code subagent's."""
+    m = re.match(r"---\r?\n(.*?)\r?\n---(\r?\n)", text, re.S)
+    if not m:
+        return claude_text(text, prose=True)
+    nl = m.group(2)
+    main_agent = re.search(r"^mainAgent:\s*true\s*$", m.group(1), re.M) is not None
+    kept, tools, key = [], [], None
+    for line in m.group(1).splitlines():
+        km = re.match(r"^([A-Za-z_][\w-]*):(.*)$", line)
+        if km:
+            key, value = km.group(1), km.group(2).strip()
+            if key == "tools":
+                tools += [t.strip() for t in value.split(",") if t.strip()]
+            if key == "description" and main_agent:
+                # A Claude subagent cannot dispatch subagents, so the planner has
+                # to be the session itself -- say so where the router reads it.
+                line = (f"description: \"Main-session planner: start it with `claude --agent {name}`. "
+                        "Never dispatch it as a subagent -- it only plans and delegates, "
+                        "and a subagent cannot delegate.\"")
+            if key in ("tools", "model", "subagent", "mainAgent"):
+                continue
+        elif key == "tools":
+            if line.strip().startswith("-"):
+                tools.append(line.strip()[1:].strip())
+            continue
+        elif key in ("model", "subagent", "mainAgent") or (key == "description" and main_agent):
+            continue
+        kept.append(line)
+    kept.append(f"model: {CLAUDE_AGENT_MODELS.get(name, SUBAGENT_MODEL)}")
+    # Figma agents drive the figma MCP server, whose tools an explicit list would
+    # shut out -- they inherit everything instead.
+    if tools and not name.startswith("figma-"):
+        mapped = list(dict.fromkeys(CLAUDE_TOOLS.get(t, t) for t in tools))
+        if "Grep" in mapped and "Glob" not in mapped:
+            mapped.insert(mapped.index("Grep") + 1, "Glob")
+        kept.append("tools: " + ", ".join(mapped))
+    head = "---" + nl + nl.join(kept) + nl + "---" + nl
+    return head + claude_text(text[m.end():], prose=True)
+
+
+def render(rel: str) -> bytes:
+    src = source_path(rel)
+    data = src.read_bytes()
+    if PLATFORM != "claude" or src.suffix not in TEXT_SUFFIXES:
+        return data
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    parts = rel.split("/")
+    if parts[0] == "agents" and len(parts) == 2 and rel.endswith(".md"):
+        text = claude_agent(text, parts[1][:-3])
+    else:
+        text = claude_text(text, prose=src.suffix == ".md")
+    return text.encode("utf-8")
+
+
+def render_digest(rel: str) -> str:
+    return hashlib.sha256(render(rel)).hexdigest()
 
 
 # --------------------------------------------------------------------------
@@ -317,7 +475,11 @@ def plan_files(selection: dict, include_hooks: bool, include_mcp: bool) -> list[
                 continue
             if not selected(rel, selection):
                 continue
+            if PLATFORM == "claude" and rel in MERGEABLE:
+                continue  # wired into settings.json / .mcp.json, not copied
             files.append(rel)
+    if PLATFORM == "claude" and include_hooks:
+        files.append(CLAUDE_ADAPTER)
     return sorted(files)
 
 
@@ -375,8 +537,21 @@ def extract_block(text: str) -> str:
 
 
 def source_block() -> str:
-    src = SOURCE_ROOT / ROOT_DOC
-    return src.read_text(encoding="utf-8").strip() if src.is_file() else ""
+    # Both platforms splice the one delegation rule; Claude's copy is rendered from it.
+    src = SOURCE_ROOT / PLATFORM_LAYOUT[DEFAULT_PLATFORM][1]
+    if not src.is_file():
+        return ""
+    text = src.read_text(encoding="utf-8").strip()
+    if PLATFORM != "claude":
+        return text
+    text = text.replace("\r\n", "\n")
+    for old, new in CLAUDE_ROOT_DOC_EDITS:
+        text = text.replace(old, new)
+    text = claude_text(text, prose=True)
+    models = (f"Subagents run on `{SUBAGENT_MODEL}`; "
+              + " and ".join(f"`{n}`" for n in CLAUDE_AGENT_MODELS) + " run on `opus` "
+              "(start the session with `claude --agent orchestrator` to plan on it).")
+    return text.replace(BLOCK_END, models + "\n" + BLOCK_END)
 
 
 def write_root_doc(target: Path, dry_run: bool) -> tuple[str, str | None]:
@@ -523,6 +698,149 @@ def merged_text(rel: str, src: Path, dst: Path) -> str:
 
 
 # --------------------------------------------------------------------------
+# Claude Code: settings.json hooks and .mcp.json
+# --------------------------------------------------------------------------
+
+def claude_hooks() -> dict:
+    """hooks.json, re-expressed as Claude Code settings hooks routed via the adapter."""
+    try:
+        groups = json.loads((SOURCE_AGENTS / "hooks.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    adapter = f'python "$CLAUDE_PROJECT_DIR/.claude/{CLAUDE_ADAPTER}"'
+    out: dict[str, list] = {"SessionStart": [
+        {"hooks": [{"type": "command", "command": f"{adapter} SessionStart", "timeout": 10}]}]}
+
+    def add(event: str, matcher: str | None, script: list[str], timeout) -> None:
+        entry = {"hooks": [{"type": "command", "timeout": timeout,
+                            "command": " ".join([adapter, event, *script])}]}
+        if matcher:
+            entry = {"matcher": matcher, **entry}
+        out.setdefault(event, []).append(entry)
+
+    for cfg in groups.values():
+        if not isinstance(cfg, dict) or not cfg.get("enabled"):
+            continue
+        for agy_event, event in CLAUDE_EVENTS.items():
+            for item in cfg.get(agy_event, []):
+                for hook in item.get("hooks", [item]):
+                    words = hook.get("command", "").split()[1:]  # drop `python`
+                    if not words:
+                        continue
+                    script = [Path(words[0]).name, *words[1:]]
+                    matcher = None
+                    if item.get("matcher"):
+                        names = [CLAUDE_TOOLS.get(n, n) for n in item["matcher"].split("|")]
+                        if "Edit" in names:
+                            names.append("MultiEdit")
+                        matcher = "|".join(dict.fromkeys(names))
+                    add(event, matcher, script, hook.get("timeout", 10))
+                    # Refcounted device owners release on their own stop; a subagent
+                    # finishing is Claude's SubagentStop, not Stop.
+                    if agy_event == "Stop" and script[-1] == "stop":
+                        add("SubagentStop", None, script, hook.get("timeout", 10))
+    return out
+
+
+def strip_claude_hooks(settings: dict) -> dict:
+    """Settings with every adapter-routed hook removed, and emptied containers dropped."""
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return dict(settings)
+    kept_events = {}
+    for event, entries in hooks.items():
+        kept = []
+        for entry in entries if isinstance(entries, list) else []:
+            inner = [h for h in entry.get("hooks", []) if CLAUDE_ADAPTER not in str(h.get("command", ""))]
+            if inner:
+                kept.append({**entry, "hooks": inner})
+        if kept:
+            kept_events[event] = kept
+    out = {k: v for k, v in settings.items() if k != "hooks"}
+    if kept_events:
+        out["hooks"] = kept_events
+    return out
+
+
+def load_json(path: Path) -> dict | None:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_json(path: Path, data: dict) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def wire_claude_settings(target_agents: Path, include_hooks: bool, dry_run: bool) -> str:
+    """Replace our hooks in .claude/settings.json, leaving the project's own intact."""
+    path = target_agents / CLAUDE_SETTINGS
+    current = load_json(path)
+    if current is None:
+        return f"skipped {CLAUDE_SETTINGS} (not valid JSON -- fix it and re-run `update`)"
+    settings = strip_claude_hooks(current)
+    if include_hooks:
+        hooks = settings.setdefault("hooks", {})
+        for event, entries in claude_hooks().items():
+            hooks.setdefault(event, []).extend(entries)
+    if settings == current:
+        return f"{CLAUDE_SETTINGS} hooks already current"
+    if not dry_run:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(path, settings)
+    return f"wired hooks into {CLAUDE_SETTINGS}"
+
+
+def merge_claude_mcp(target: Path, previously_added: list[str], dry_run: bool) -> tuple[str, list[str]]:
+    """Add harness MCP servers to .mcp.json. The project's own entries win."""
+    incoming = (load_json(SOURCE_AGENTS / "mcp_config.json") or {}).get("mcpServers", {})
+    path = target / CLAUDE_MCP
+    current = load_json(path)
+    if current is None:
+        return f"skipped {CLAUDE_MCP} (not valid JSON)", previously_added
+    servers = dict(current.get("mcpServers", {}))
+    added = [n for n in incoming if n not in servers]
+    for name in added:
+        servers[name] = incoming[name]
+    ours = sorted(set(added) | {n for n in previously_added if n in servers})
+    if not added:
+        return f"{CLAUDE_MCP} already current", ours
+    if not dry_run:
+        write_json(path, {**current, "mcpServers": servers})
+    return f"added {', '.join(added)} to {CLAUDE_MCP}", ours
+
+
+def unmerge_claude(target: Path, target_agents: Path, mcp_added: list[str], dry_run: bool) -> list[str]:
+    """Take our hooks and MCP servers back out; delete a file only if nothing else is left."""
+    notes = []
+    path = target_agents / CLAUDE_SETTINGS
+    current = load_json(path)
+    if current:
+        stripped = strip_claude_hooks(current)
+        if stripped != current:
+            notes.append(f"removed harness hooks from {path}")
+            if not dry_run:
+                path.unlink() if not stripped else write_json(path, stripped)
+    path = target / CLAUDE_MCP
+    current = load_json(path)
+    if current and mcp_added:
+        servers = {k: v for k, v in current.get("mcpServers", {}).items() if k not in mcp_added}
+        rest = {k: v for k, v in current.items() if k != "mcpServers"}
+        if servers:
+            rest["mcpServers"] = servers
+        if rest != current:
+            notes.append(f"removed {', '.join(mcp_added)} from {path}")
+            if not dry_run:
+                path.unlink() if not rest else write_json(path, rest)
+    return notes
+
+
+# --------------------------------------------------------------------------
 # manifest
 # --------------------------------------------------------------------------
 
@@ -538,13 +856,16 @@ def read_manifest(target_agents: Path) -> dict | None:
         return None
 
 
-def write_manifest(target_agents: Path, files: dict[str, str], args) -> None:
+def write_manifest(target_agents: Path, files: dict[str, str], args,
+                   extra: dict | None = None) -> None:
     manifest = {
         "source": str(SOURCE_ROOT),
         "commit": source_commit(),
+        "platform": PLATFORM,
         "track": args.track,
         "profile": args.profile,
         "installed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        **(extra or {}),
         "files": files,
     }
     (target_agents / MANIFEST_NAME).write_text(
@@ -590,14 +911,16 @@ def do_install(args, updating: bool) -> int:
     target = Path(args.target).resolve()
     if not target.is_dir():
         die(f"target {target} is not a directory")
-    target_agents = target / ".agents"
+    target_agents = target / HARNESS_DIR
     if target_agents.resolve() == SOURCE_AGENTS.resolve():
         die("target is the harness source itself")
     if target == REPO_ROOT:
         die("the harness repo keeps no .agents/ of its own -- edit assets/ instead")
 
     manifest = read_manifest(target_agents)
-    existing = target_agents.exists()
+    # A project's .claude/ usually predates us (settings.local.json), so for Claude
+    # only an existing install blocks init; clashing files are kept, below.
+    existing = bool(manifest) if PLATFORM == "claude" else target_agents.exists()
 
     if existing and not updating and not args.force:
         die(f"{target_agents} already exists -- use `update`, or `init --force`")
@@ -611,15 +934,21 @@ def do_install(args, updating: bool) -> int:
     if not files:
         die("selection is empty -- nothing to install")
 
-    written, skipped, merged, unchanged_n = [], [], [], 0
+    written, skipped, merged, theirs, unchanged_n = [], [], [], [], 0
     digests: dict[str, str] = {}
 
     for rel in files:
         src = SOURCE_AGENTS / rel
         dst = target_agents / rel
+        data = render(rel)
+        want = hashlib.sha256(data).hexdigest()
         if rel in protected:
             skipped.append(rel)
-            digests[rel] = manifest["files"][rel] if manifest else sha256(src)
+            digests[rel] = manifest["files"][rel] if manifest else want
+            continue
+        if (PLATFORM == "claude" and manifest is None and not args.force
+                and dst.is_file() and sha256(dst) != want):
+            theirs.append(rel)  # the project's own file, never recorded as ours
             continue
 
         text = None
@@ -630,16 +959,17 @@ def do_install(args, updating: bool) -> int:
         if not args.dry_run:
             dst.parent.mkdir(parents=True, exist_ok=True)
             if text is None:
-                if dst.is_file() and sha256(dst) == sha256(src):
+                if dst.is_file() and sha256(dst) == want:
                     unchanged_n += 1
-                    digests[rel] = sha256(src)
+                    digests[rel] = want
                     continue
-                shutil.copy2(src, dst)
+                dst.write_bytes(data)
+                shutil.copymode(source_path(rel), dst)
             else:
                 dst.write_text(text, encoding="utf-8")
             digests[rel] = sha256(dst)
         else:
-            digests[rel] = sha256(src)
+            digests[rel] = want
         written.append(rel)
 
     root_doc = None
@@ -663,12 +993,23 @@ def do_install(args, updating: bool) -> int:
     if stale and args.prune and not args.dry_run:
         prune_empty_dirs(target_agents)
 
+    claude_notes, extra = [], {}
+    if PLATFORM == "claude":
+        claude_notes.append(wire_claude_settings(target_agents, not args.no_hooks, args.dry_run))
+        mcp_added = (manifest or {}).get("mcp_added", [])
+        if not args.no_mcp:
+            note, mcp_added = merge_claude_mcp(target, mcp_added, args.dry_run)
+            claude_notes.append(note)
+        extra = {"subagent_model": SUBAGENT_MODEL, "mcp_added": mcp_added}
+
     if not args.dry_run:
-        write_manifest(target_agents, digests, args)
+        target_agents.mkdir(parents=True, exist_ok=True)
+        write_manifest(target_agents, digests, args, extra)
 
     exclude_status = None
     exclude_n = 0
-    if not args.no_git_exclude:
+    # A Claude install is committed with the project, so it is never git-excluded.
+    if not args.no_git_exclude and PLATFORM != "claude":
         exclude_path = git_exclude_file(target)
         if exclude_path:
             prefix = git_repo_prefix(target)
@@ -691,6 +1032,7 @@ def do_install(args, updating: bool) -> int:
 
     verb = "would write" if args.dry_run else "wrote"
     print(f"aha {'update' if updating else 'init'} -> {target_agents}")
+    print(f"  platform     {PLATFORM}")
     print(f"  track        {args.track}")
     print(f"  profile      {args.profile}  (source {source_commit()})")
     print(f"  {verb:<12} {len(written)} file(s)"
@@ -710,12 +1052,21 @@ def do_install(args, updating: bool) -> int:
             print(f"  git exclude  {exclude_status} .git/info/exclude ({exclude_n} entries)")
     for rel in merged:
         print(f"  merged       {rel} (your entries kept, harness entries added)")
+    for note in claude_notes:
+        print(f"  settings     {note}")
+    for rel in theirs:
+        print(f"  kept yours   {rel} (already in the project; --force to replace)")
     for rel in skipped:
         print(f"  kept local   {rel} (edited since install; --overwrite-local to replace)")
     for rel in stale:
         print(f"  {'pruned' if args.prune and not args.dry_run else 'orphaned'}       {rel}"
               + ("" if args.prune else " (no longer in profile; --prune to delete)"))
-    if not existing and not args.dry_run:
+    if not existing and not args.dry_run and PLATFORM == "claude":
+        print("\nNext: open the project in Claude Code. `CLAUDE.md` and `.claude/rules/*.md`")
+        print(f"load always; subagents run on {SUBAGENT_MODEL}, orchestrator and oracle on opus")
+        print("(`claude --agent orchestrator` plans on opus). Hooks need `python` on PATH.")
+        print("Commit .claude/, CLAUDE.md and .mcp.json to share the harness with your team.")
+    elif not existing and not args.dry_run:
         print("\nNext: open the project in Antigravity. `AGENTS.md` and `.agents/rules/*.md`")
         print("load always; skills load on demand; hooks run with CWD = .agents/ and need")
         print("`python` on PATH.")
@@ -724,18 +1075,19 @@ def do_install(args, updating: bool) -> int:
 
 def do_status(args) -> int:
     target = Path(args.target).resolve()
-    target_agents = target / ".agents"
+    target_agents = target / HARNESS_DIR
     if not target_agents.is_dir():
-        print(f"aha: no .agents/ in {target}")
+        print(f"aha: no {HARNESS_DIR}/ in {target}")
         return 1
     manifest = read_manifest(target_agents)
     print(f"aha status -> {target_agents}")
     if not manifest:
-        print("  no manifest -- .agents/ exists but was not installed by this CLI")
+        print(f"  no manifest -- {HARNESS_DIR}/ exists but was not installed by this CLI")
         return 1
 
     state = classify(target_agents, manifest)
     print(f"  installed    {manifest.get('installed_at', '?')}"
+          f"  platform {manifest.get('platform', DEFAULT_PLATFORM)}"
           f"  track {manifest.get('track', DEFAULT_TRACK)}"
           f"  profile {manifest.get('profile', '?')}  commit {manifest.get('commit', '?')}")
     print(f"  source       {manifest.get('source', '?')}")
@@ -748,8 +1100,7 @@ def do_status(args) -> int:
     for rel, digest in manifest.get("files", {}).items():
         if rel == ROOT_DOC_KEY:
             continue
-        src = SOURCE_AGENTS / rel
-        if src.is_file() and sha256(src) != digest and rel not in state["modified"]:
+        if source_path(rel).is_file() and render_digest(rel) != digest and rel not in state["modified"]:
             outdated.append(rel)
 
     # AGENTS.md is compared by block, not by file digest: the project owns
@@ -763,6 +1114,11 @@ def do_status(args) -> int:
             print(f"  {ROOT_DOC:<12} block differs from source -- run `update`")
         else:
             print(f"  {ROOT_DOC:<12} block current")
+    if PLATFORM == "claude":
+        settings = load_json(target_agents / CLAUDE_SETTINGS) or {}
+        wired = strip_claude_hooks(settings) != settings
+        print(f"  {CLAUDE_SETTINGS:<12} "
+              + ("harness hooks wired" if wired else "no harness hooks -- run `update`"))
 
     print(f"  {len(state['unchanged'])} unchanged, {len(state['modified'])} edited locally,"
           f" {len(state['deleted'])} deleted, {len(outdated)} stale vs source")
@@ -778,9 +1134,9 @@ def do_status(args) -> int:
 
 def do_remove(args) -> int:
     target = Path(args.target).resolve()
-    target_agents = target / ".agents"
+    target_agents = target / HARNESS_DIR
     if not target_agents.is_dir():
-        die(f"no .agents/ in {target}")
+        die(f"no {HARNESS_DIR}/ in {target}")
     manifest = read_manifest(target_agents)
     if manifest is None and not args.force:
         die(f"{target_agents} has no aha manifest -- refusing to delete "
@@ -801,7 +1157,8 @@ def do_remove(args) -> int:
             rest = strip_block(before)
             root_action = "delete" if not rest else "unsplice"
 
-    exclude_path = git_exclude_file(target)
+    # The exclude block belongs to the Antigravity install; a Claude one never wrote it.
+    exclude_path = git_exclude_file(target) if PLATFORM != "claude" else None
     exclude_action = None
     if exclude_path and exclude_path.is_file():
         ex_content = exclude_path.read_text(encoding="utf-8")
@@ -821,6 +1178,11 @@ def do_remove(args) -> int:
         if p.is_file() and p not in files_to_delete:
             files_to_delete.append(p)
 
+    claude_notes = []
+    if PLATFORM == "claude":
+        claude_notes = unmerge_claude(target, target_agents, (manifest or {}).get("mcp_added", []),
+                                      args.dry_run)
+
     all_agent_files = {p.resolve() for p in target_agents.rglob("*") if p.is_file()}
     delete_set = {p.resolve() for p in files_to_delete}
     remaining_files = all_agent_files - delete_set
@@ -832,6 +1194,8 @@ def do_remove(args) -> int:
             print(f"aha: would delete {len(files_to_delete)} file(s) and remove {target_agents}")
         if exclude_action == "strip":
             print(f"aha: would remove exclude block from {exclude_path}")
+        for note in claude_notes:
+            print(f"aha: would have {note}")
         if root_action == "delete":
             print(f"aha: would delete {root_dst} (only our block is in it)")
         elif root_action == "unsplice":
@@ -869,6 +1233,8 @@ def do_remove(args) -> int:
             with exclude_path.open("w", encoding="utf-8", newline="\n") as fh:
                 fh.write(stripped)
             print(f"aha: removed exclude block from {exclude_path}")
+    for note in claude_notes:
+        print(f"aha: {note}")
 
     if root_action == "delete":
         root_dst.unlink()
@@ -929,7 +1295,17 @@ def do_list(args) -> int:
 # argument parsing
 # --------------------------------------------------------------------------
 
+def add_platform_flag(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--platform", default=None, choices=PLATFORMS,
+                   help=f"agent host: {' or '.join(PLATFORMS)} (default: {DEFAULT_PLATFORM} "
+                        "on init, whichever is installed otherwise)")
+
+
 def add_selection_flags(p: argparse.ArgumentParser) -> None:
+    add_platform_flag(p)
+    p.add_argument("--subagent-model", default=None,
+                   help=f"Claude only: model for subagents (default: {DEFAULT_SUBAGENT_MODEL}; "
+                        + ", ".join(CLAUDE_AGENT_MODELS) + " stay on opus)")
     p.add_argument("--track", default=None, choices=TRACKS,
                    help=f"which payload to install: {' or '.join(TRACKS)} "
                         f"(default: {DEFAULT_TRACK})")
@@ -946,7 +1322,7 @@ def add_selection_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-agents-md", action="store_true",
                    help=f"skip {ROOT_DOC} (leaves the project root untouched)")
     p.add_argument("--no-git-exclude", action="store_true",
-                   help="skip updating .git/info/exclude")
+                   help="skip updating .git/info/exclude (never written for claude)")
     p.add_argument("-n", "--dry-run", action="store_true", help="print the plan only")
 
 
@@ -982,6 +1358,7 @@ def main(argv: list[str]) -> int:
     p_st = sub.add_parser("status", help="show what is installed and what drifted")
     p_st.add_argument("target", nargs="?", default=".",
                       help="target directory (default: .)")
+    add_platform_flag(p_st)
 
     for cmd in ("remove", "undo", "undo-init"):
         p_cmd = sub.add_parser(
@@ -995,6 +1372,7 @@ def main(argv: list[str]) -> int:
                            help="delete even with local edits or no manifest")
         p_cmd.add_argument("-n", "--dry-run", action="store_true",
                            help="print what would be removed")
+        add_platform_flag(p_cmd)
 
     p_ls = sub.add_parser("list", help="show available components and profiles")
     p_ls.add_argument("--track", default=DEFAULT_TRACK, choices=TRACKS,
@@ -1002,14 +1380,21 @@ def main(argv: list[str]) -> int:
 
     args = parser.parse_args(argv)
 
+    global SUBAGENT_MODEL
     if args.command == "init":
+        select_platform(args.platform or DEFAULT_PLATFORM)
+        SUBAGENT_MODEL = args.subagent_model or DEFAULT_SUBAGENT_MODEL
         if args.track is None:
             args.track = DEFAULT_TRACK
         select_track(args.track)
         return do_install(args, updating=False)
+    if args.command in ("update", "status", "remove", "undo", "undo-init"):
+        select_platform(detect_platform(Path(args.target).resolve(), args.platform))
     if args.command == "update":
-        target_agents = Path(args.target).resolve() / ".agents"
+        target_agents = Path(args.target).resolve() / HARNESS_DIR
         prev = read_manifest(target_agents)
+        SUBAGENT_MODEL = (args.subagent_model or (prev or {}).get("subagent_model")
+                          or DEFAULT_SUBAGENT_MODEL)
         # A flag-less update carries the previous track and profile forward --
         # silently switching a project's toolkit on `aha update` would swap its
         # always-on rules out from under it.
@@ -1021,11 +1406,12 @@ def main(argv: list[str]) -> int:
         select_track(args.track)
         return do_install(args, updating=True)
     if args.command == "status":
-        prev = read_manifest(Path(args.target).resolve() / ".agents")
+        prev = read_manifest(Path(args.target).resolve() / HARNESS_DIR)
         select_track((prev or {}).get("track", DEFAULT_TRACK))
+        SUBAGENT_MODEL = (prev or {}).get("subagent_model") or DEFAULT_SUBAGENT_MODEL
         return do_status(args)
     if args.command in ("remove", "undo", "undo-init"):
-        prev = read_manifest(Path(args.target).resolve() / ".agents")
+        prev = read_manifest(Path(args.target).resolve() / HARNESS_DIR)
         select_track((prev or {}).get("track", DEFAULT_TRACK))
         return do_remove(args)
     if args.command == "list":

@@ -127,6 +127,8 @@ def spawned_by_another(conversation_id: str, brain_root: Path | None = None) -> 
     Both the id and the spawn marker must appear in the same record, so a child's
     'Message sent to "<parent>"' report cannot make its parent look like a delegate.
     """
+    if HOOKS_DIR.parent.name == ".claude":
+        return False
     root = brain_root or BRAIN_DIR
     if not conversation_id or not root.is_dir():
         return False
