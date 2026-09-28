@@ -26,6 +26,9 @@ This rule replaces `.agents/rules/android.md`; the two are never installed toget
   `ListAdapter`, no `notifyDataSetChanged`.
 - Preserve existing ViewModels, UseCases, Epoxy controllers and navigation contracts when
   restyling. A visual change that rewrites behaviour is a failed change.
+- Bottom navigation bars: create a custom bottom navigation view (`CustomBottomNavigationView`)
+  instead of using the default Material `BottomNavigationView`. Details: skill `android-xml-views`
+  -> `references/custom-bottom-navigation.md`.
 - Never add comments in Kotlin code (`//`, `/* */`). KDoc on public API only.
 - Never hardcode user-facing strings — `res/values/strings.xml`, then `@string/…` in the
   layout or `getString(...)` in code. Every `ImageView` that carries meaning gets an

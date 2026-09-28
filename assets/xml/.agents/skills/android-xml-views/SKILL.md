@@ -186,6 +186,23 @@ Follow whatever the project already has, and check before assuming:
 Either way: the ViewModel emits "go here", the view layer performs it. A ViewModel holding
 a `Context` or an `Intent` has crossed the line.
 
+### Bottom navigation: create custom instead of using default BottomNavigationView
+
+**Create a custom bottom navigation view (`CustomBottomNavigationView`) instead of using the default Material `BottomNavigationView`.**
+
+The default Material `BottomNavigationView` (`com.google.android.material.bottomnavigation.BottomNavigationView`) is inadequate for custom mobile designs:
+- Its active indicator is locked to an oval pill surrounding the icon; pinning an active indicator bar to the top edge is difficult or impossible without fragile hacks.
+- Its elevation shadows only cast downward and clip against parent boundaries, making an upward soft ambient blur (`-2dp` offset, `4dp` blur) impossible.
+- Custom item layout, hairline divider strokes, and spacing cannot be expressed cleanly.
+
+Instead, build a custom `FrameLayout` (`CustomBottomNavigationView`) that:
+1. Pins a rounded indicator bar (`52dp × 3dp`, `2dp` corner radius) to the top edge of each item.
+2. Draws an upward soft drop shadow (`LAYER_TYPE_SOFTWARE`, `Paint.setShadowLayer`, reserved `6dp` shadow height) and a 1dp top divider line.
+3. Uses integer division in `onMeasure`/`onLayout` for equal item distribution without fractional rounding seams.
+4. Sets `isDuplicateParentStateEnabled = true` on the icon `ImageView` and label `TextView`, letting the parent `NavigationItemView`'s `isSelected` drive `selector_nav_*.xml` and `selector_nav_text.xml` automatically.
+
+Complete reference implementation, specs, and recipes: [references/custom-bottom-navigation.md](./references/custom-bottom-navigation.md).
+
 ## Module structure
 
 Multi-module projects here follow: `app` → `feature/*` → `core/ui`, `core/domain`,
@@ -207,6 +224,7 @@ propose a modularisation nobody asked for.
 - **No raw hex in a layout** — `@color/…`. Colours are defined in `colors.xml` and
   nowhere else.
 - **No new `<shape>` / `<selector>` / `<ripple>` drawable** — that is `shape-view`'s job.
+- **Create a custom bottom navigation view (`CustomBottomNavigationView`) instead of using default `BottomNavigationView`** when implementing bottom tab navigation.
 - **`start`/`end`, never `left`/`right`.**
 - **Every meaningful `ImageView` has a `contentDescription`**; decorative ones say `@null`
   explicitly.
@@ -225,5 +243,6 @@ A layout error is a resource-linking failure, not a Kotlin one, so
   there compiles fine in XML and fails in Kotlin with an unhelpful message.
 - Generated Epoxy classes (`…Model_`) only exist if `ksp(libs.epoxyProcessor)` is on
   **that** module. An unresolved `DocumentItemModel_` is a missing processor, not a typo.
+- Custom bottom navigation view sets `LAYER_TYPE_SOFTWARE`, reserves `shadowHeight`, and sets `isDuplicateParentStateEnabled = true` on icon and label.
 - For UI-facing work, the screen has to be driven on a device. A green build says nothing
   about whether a `ConstraintLayout` chain collapsed.
