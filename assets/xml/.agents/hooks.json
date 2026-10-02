@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python hooks/rule_gate.py",
+            "command": "python3 hooks/rule_gate.py || python hooks/rule_gate.py",
             "timeout": 10
           }
         ]
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python hooks/write_guard.py",
+            "command": "python3 hooks/write_guard.py || python hooks/write_guard.py",
             "timeout": 10
           }
         ]
@@ -37,7 +37,7 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "python hooks/intent_gate.py",
+        "command": "python3 hooks/intent_gate.py || python hooks/intent_gate.py",
         "timeout": 10
       }
     ]
@@ -48,32 +48,32 @@
     "Stop": [
       {
         "type": "command",
-        "command": "python hooks/stop_verifier.py",
+        "command": "python3 hooks/stop_verifier.py || python hooks/stop_verifier.py",
         "timeout": 20
       }
     ]
   },
   "omo-port-probe": {
-    "_comment": "Contract probe. Q1/Q3 answered 2026-08-27 -- findings recorded in docs/omo-port/MAPPING.md. Left disabled rather than deleted: re-enable to answer Q7 (named-agent invoke_subagent shape) by running one delegation to a named .agents/agents/* agent. CWD is confirmed to be .agents/, so the '|| python hooks/...' fallback is redundant.",
+    "_comment": "Contract probe. Q1/Q3 answered 2026-08-27 -- findings recorded in docs/omo-port/MAPPING.md. Left disabled rather than deleted: re-enable to answer Q7 (named-agent invoke_subagent shape) by running one delegation to a named .agents/agents/* agent. CWD is confirmed to be .agents/. Every command is 'python3 X || python X': macOS ships no bare python, Windows' python3 is often the Store stub (exit 9009); the fallback fires only when python3 is absent because every hook exits 0.",
     "enabled": false,
     "PreInvocation": [
       {
         "type": "command",
-        "command": "python hooks/probe.py preinvocation",
+        "command": "python3 hooks/probe.py preinvocation || python hooks/probe.py preinvocation",
         "timeout": 5
       }
     ],
     "PostInvocation": [
       {
         "type": "command",
-        "command": "python hooks/probe.py postinvocation",
+        "command": "python3 hooks/probe.py postinvocation || python hooks/probe.py postinvocation",
         "timeout": 5
       }
     ],
     "Stop": [
       {
         "type": "command",
-        "command": "python hooks/probe.py stop",
+        "command": "python3 hooks/probe.py stop || python hooks/probe.py stop",
         "timeout": 5
       }
     ]
@@ -84,14 +84,14 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "python hooks/scrcpy_daemon.py preinvocation",
+        "command": "python3 hooks/scrcpy_daemon.py preinvocation || python hooks/scrcpy_daemon.py preinvocation",
         "timeout": 10
       }
     ],
     "Stop": [
       {
         "type": "command",
-        "command": "python hooks/scrcpy_daemon.py stop",
+        "command": "python3 hooks/scrcpy_daemon.py stop || python hooks/scrcpy_daemon.py stop",
         "timeout": 20
       }
     ]
@@ -105,7 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python hooks/device_gate.py pretooluse",
+            "command": "python3 hooks/device_gate.py pretooluse || python hooks/device_gate.py pretooluse",
             "timeout": 30
           }
         ]
@@ -114,7 +114,7 @@
     "Stop": [
       {
         "type": "command",
-        "command": "python hooks/device_gate.py stop",
+        "command": "python3 hooks/device_gate.py stop || python hooks/device_gate.py stop",
         "timeout": 20
       }
     ]

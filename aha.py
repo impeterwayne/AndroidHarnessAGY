@@ -707,13 +707,20 @@ def claude_hooks() -> dict:
         groups = json.loads((SOURCE_AGENTS / "hooks.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    adapter = f'python "$CLAUDE_PROJECT_DIR/.claude/{CLAUDE_ADAPTER}"'
+    adapter = f'"$CLAUDE_PROJECT_DIR/.claude/{CLAUDE_ADAPTER}"'
+
+    def command(*args: str) -> str:
+        # macOS has no bare `python`; Windows' `python3` is often the Store stub. The
+        # adapter always exits 0, so the fallback only fires when python3 is absent.
+        line = " ".join([adapter, *args])
+        return f"python3 {line} || python {line}"
+
     out: dict[str, list] = {"SessionStart": [
-        {"hooks": [{"type": "command", "command": f"{adapter} SessionStart", "timeout": 10}]}]}
+        {"hooks": [{"type": "command", "command": command("SessionStart"), "timeout": 10}]}]}
 
     def add(event: str, matcher: str | None, script: list[str], timeout) -> None:
         entry = {"hooks": [{"type": "command", "timeout": timeout,
-                            "command": " ".join([adapter, event, *script])}]}
+                            "command": command(event, *script)}]}
         if matcher:
             entry = {"matcher": matcher, **entry}
         out.setdefault(event, []).append(entry)
@@ -724,7 +731,8 @@ def claude_hooks() -> dict:
         for agy_event, event in CLAUDE_EVENTS.items():
             for item in cfg.get(agy_event, []):
                 for hook in item.get("hooks", [item]):
-                    words = hook.get("command", "").split()[1:]  # drop `python`
+                    # `python3 X || python X`: keep the first alternative, drop the interpreter
+                    words = hook.get("command", "").split("||")[0].split()[1:]
                     if not words:
                         continue
                     script = [Path(words[0]).name, *words[1:]]
@@ -1064,12 +1072,12 @@ def do_install(args, updating: bool) -> int:
     if not existing and not args.dry_run and PLATFORM == "claude":
         print("\nNext: open the project in Claude Code. `CLAUDE.md` and `.claude/rules/*.md`")
         print(f"load always; subagents run on {SUBAGENT_MODEL}, orchestrator and oracle on opus")
-        print("(`claude --agent orchestrator` plans on opus). Hooks need `python` on PATH.")
+        print("(`claude --agent orchestrator` plans on opus). Hooks need `python3` or `python` on PATH.")
         print("Commit .claude/, CLAUDE.md and .mcp.json to share the harness with your team.")
     elif not existing and not args.dry_run:
         print("\nNext: open the project in Antigravity. `AGENTS.md` and `.agents/rules/*.md`")
         print("load always; skills load on demand; hooks run with CWD = .agents/ and need")
-        print("`python` on PATH.")
+        print("`python3` or `python` on PATH.")
     return 0
 
 
