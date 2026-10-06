@@ -38,7 +38,8 @@ wrapper; never stream, `tee`, paste, or reopen a complete build log.
 4. The wrapper refuses `install*`, `uninstall*`, and `connected*` tasks. Those
    select a device themselves, so in a multi-worktree checkout they install
    over another worktree's run. Assemble instead, and install the resulting
-   APK with `andrun install --no-build`, which honours the device lease.
+   APK with `python .agents/scripts/device_lease.py install`, which installs on
+   the device this worktree leased.
 5. For incidental validation, stay in the current agent and run the smallest
    owning task with a non-empty verification question:
 

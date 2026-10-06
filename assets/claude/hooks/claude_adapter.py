@@ -15,7 +15,8 @@ Mapping:
   PreToolUse        Write/Edit/MultiEdit -> write_to_file/replace_file_content args,
                     Bash -> run_command {CommandLine}. `deny` becomes
                     permissionDecision deny; an `overwrite` of CommandLine becomes
-                    updatedInput. Pass verdicts ("ask"/"allow") defer to Claude's own
+                    updatedInput, as does an overwrite of an MCP tool's own args
+                    (device_gate pins mobilerun's `device`). Pass verdicts ("ask"/"allow") defer to Claude's own
                     permission flow -- auto-approving every write or shell command
                     because a lint passed would be a policy change, not a port.
   UserPromptSubmit  intent_gate matches the prompt text directly (Antigravity had to
@@ -148,12 +149,20 @@ def on_pretooluse(payload: dict, script: str, args: list[str]) -> dict:
         hso["permissionDecision"] = "deny"
         hso["permissionDecisionReason"] = claudeify(str(verdict.get("reason") or "denied"))
         return {"hookSpecificOutput": hso}
-    rewritten = (verdict.get("overwrite") or {}).get("CommandLine")
-    if rewritten and payload.get("tool_name") == "Bash":
+    overwrite = verdict.get("overwrite") or {}
+    name = payload.get("tool_name") or ""
+    tool_input = payload.get("tool_input") or {}
+    updated = None
+    if name == "Bash" and overwrite.get("CommandLine"):
+        updated = {**tool_input, "command": overwrite["CommandLine"]}
+    elif name.startswith("mcp__") and overwrite:
+        # MCP args pass through tool_call() unrenamed, so the overwrite applies as-is.
+        updated = {**tool_input, **overwrite}
+    if updated is not None:
         # The rewrite only takes effect on an approved call, which is what the
         # Antigravity gate did too (device_gate's pass verdict is "allow").
         hso["permissionDecision"] = "allow"
-        hso["updatedInput"] = {**(payload.get("tool_input") or {}), "command": rewritten}
+        hso["updatedInput"] = updated
         return {"hookSpecificOutput": hso}
     return {}
 

@@ -2,10 +2,7 @@
   "mcpServers": {
     "mobilerun": {
       "command": "npx",
-      "args": ["-y", "@impeterwayne/mobilerun-mcp@latest"],
-      "env": {
-        "MOBILERUN_DEVICE": "<serial>"
-      }
+      "args": ["-y", "@impeterwayne/mobilerun-mcp@latest"]
     },
     "figma-mcp-android": {
       "command": "npx",

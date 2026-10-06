@@ -17,7 +17,6 @@ trigger: always_on
 - **Image Loading (`GlideImage`)**: For dynamic remote images or complex artwork in Jetpack Compose, use Skydoves Landscapist Glide (`com.skydoves.landscapist.glide.GlideImage`) with proper `previewPlaceholder`, `loading`, and `failure` states.
 
 ## 3. Device & Build Ownership
-- **Gradle never installs**: no `installDebug`, `connectedAndroidTest`, or any `install*`/`uninstall*`/`connected*` task. They pick a device themselves and overwrite whatever another git worktree is verifying on it. Assemble, then `andrun install --no-build --launch --json`.
-- **Never `adb install`**: same reason. `andrun` resolves the device this worktree leased.
-- **Never pass a device or serial**: the `device-gate` hook leases one on your first device command and injects `-s <serial>` into `adb` for you (and `mobilerun` targets `MOBILERUN_DEVICE`). If it denies because every device is leased elsewhere, queue with `andrun queue ensure --wait-timeout 600 --json` — do not work around it.
+- **Gradle never installs**: no `installDebug`, `connectedAndroidTest`, or any `install*`/`uninstall*`/`connected*` task. They pick a device themselves and overwrite whatever another git worktree is verifying on it. Assemble, then `python .agents/scripts/device_lease.py install --launch --json`.
+- **One device per worktree, chosen by the lease**: `device_lease.py` leases devices machine-wide, and the `device-gate` hook pins every `adb` command (`-s <serial>`) and every `mobilerun` call (`device`) to this worktree's lease. Never pick a device yourself or configure a serial. If it denies because every device is leased elsewhere, queue with `python .agents/scripts/device_lease.py acquire --wait 600` — do not work around it.
 

@@ -77,6 +77,9 @@ Both platforms can be installed side by side. `update`, `status` and `undo` act 
 | `aha status [target]` | Displays installed version, upstream commits, and drifted files. |
 | `aha undo [target]` | Reverses installation cleanly, restoring `AGENTS.md` and excludes. |
 | `aha list` | Lists all available rules, agents, skills, and hooks. |
+| `aha verifier [mode]` | Shows or sets this worktree's verifier mode (`minimal`, `compact`, `full`); `--reset` returns to the project default, `--device <serial>` sets the device this worktree prefers. |
+| `aha mcp` | Lists the harness MCP servers and whether each is on. `aha mcp on figma` / `aha mcp off figma` switch optional servers; mobilerun is not switched here (see below). |
+| `aha worktree add <path> [git args]` | Runs `git worktree add`, then installs the same harness (platform, track, profile, verifier default) into the new worktree. |
 
 Flags: `--platform {antigravity,claude}`, `--subagent-model <model>`, `--track {xml,compose}`, `--profile <name>`, `--skills <names>`, `--agents <names>`, `--rules <names>`, `--no-hooks`, `--no-mcp`, `--dry-run`.
 
@@ -104,7 +107,7 @@ The root conversation session plans and delegates; it never directly edits sourc
 - **`explore`**: Fast repository search, discovery, and file indexing.
 - **`oracle`**: Architecture review, edge cases, and compliance.
 - **`executor`**: Dispatched for code changes (compiles and tests what it writes).
-- **`verifier`**: Aggregates build verification and drives on-device testing via `scrcpy`.
+- **`verifier`**: Aggregates build verification and drives on-device testing via the `mobilerun` MCP server.
 - **`figma-analyzer` / `figma-asset-extractor` / `figma-xml-developer`** (or `figma-compose-developer`): 4-stage pipeline converting Figma specs into production code.
 
 ### 2. Deterministic Safety Hooks
@@ -114,7 +117,8 @@ The root conversation session plans and delegates; it never directly edits sourc
   - Enforces `@color/*` tokens (no raw hex).
   - On XML track, rejects redundant `<shape>`/`<selector>` XML drawables in favor of ShapeView `app:shape_*` attributes.
 - **`write_guard.py` (`PreToolUse`)**: Blocks source file edits from the root session to enforce delegation.
-- **`device_gate.py` & `stop_verifier.py`**: Ensures exclusive device leases (`andrun`) and holds goal loops open until verification passes.
+- **`device_gate.py` (`PreToolUse`)**: Pins every `adb` command and every `mobilerun` call to the device this worktree leased (see [Parallel Worktrees](#6-parallel-worktrees--devices)), and blocks Gradle `install*`/`connected*` tasks.
+- **`stop_verifier.py` (`Stop`)**: Holds goal loops open until verification passes.
 
 ---
 
@@ -139,7 +143,7 @@ Triggers the 4-stage automated pipeline:
 1. **`figma-analyzer`**: Extracts layout hierarchy, variants, and component specs (`docs/<feature>/figma-spec.md`).
 2. **`figma-asset-extractor`**: Exports SVGs to `ic_*.xml` vector drawables and snaps color/dimen tokens.
 3. **`figma-xml-developer`** (or `figma-compose-developer`): Generates layouts, ShapeView attributes, and ViewModel contracts.
-4. **`verifier`**: Builds APK and validates on-device visual conformance via `scrcpy`.
+4. **`verifier`**: Builds APK and validates on-device visual conformance via `mobilerun`.
 
 ### 3. High-Rigour Mode (`ultrawork`)
 For complex refactors, multi-module features, or high-stakes bug fixes:
@@ -162,7 +166,24 @@ Review changes before merging or clean up technical debt:
 Verify UI and runtime behavior on real devices:
 > *"Run the app on my connected device and verify the login flow"*
 
-- Managed by `device_gate.py` and `scrcpy_daemon.py` to coordinate exclusive device leases (`andrun`) across sessions.
+- `verifier` in `full` mode assembles through `gradle-run`, installs with `device_lease.py install --launch`, then drives the screen with `mobilerun`.
+- The host needs only `adb`, Python (for hooks and scripts) and Node (for `npx`).
+
+### 6. Parallel Worktrees & Devices
+Run one agent session per git worktree; the harness keeps them off each other's builds and devices.
+
+```bash
+aha worktree add ../app-login -b feature/login   # new worktree, same harness
+cd ../app-login && aha verifier full              # this worktree verifies on device
+```
+
+- **Gradle**: each worktree builds in its own directory; `gradle-run` serializes builds within one worktree.
+- **Devices**: `.agents/scripts/device_lease.py` keeps machine-wide leases in `~/.aha/devices/leases.json` (`AHA_HOME` relocates it). A worktree holds at most one device and a device belongs to at most one worktree. The `device-gate` hook takes the lease on the first device call and rewrites `adb` to `adb -s <serial>` and mobilerun's `device` argument to the leased serial, so no serial is ever configured. When every device is busy the call is denied with the holder's name, and the agent queues with `device_lease.py acquire --wait 600`. Leases expire after 30 minutes of inactivity, or as soon as their worktree directory is deleted.
+- **MCP servers**: mobilerun is on in a worktree exactly when its verifier mode is `full`, and off otherwise; `aha verifier full` / `aha verifier compact` switch it. figma is on when the figma agents are installed; choose explicitly with `--mcp figma` / `--mcp none` at install, or `aha mcp on|off figma` later. On Antigravity the switch edits the worktree's untracked `.agents/mcp_config.json`. On Claude Code, `.mcp.json` (committed) always defines mobilerun, and each worktree enables or rejects it in its git-ignored `.claude/settings.local.json` (`enabledMcpjsonServers` / `disabledMcpjsonServers`). Restart the agent session after switching.
+- **Settings per worktree**: `aha verifier <mode>` and `--device <serial>` write untracked files under `.agents/state/` (git-ignored), so a committed Claude install stays clean while each worktree runs its own mode.
+- **Inspect**: `python .agents/scripts/device_lease.py list` shows which worktree holds which device; `release` frees this worktree's device.
+
+With one phone, verifiers in different worktrees take turns. Attach another device or start an emulator to verify in parallel.
 
 ---
 

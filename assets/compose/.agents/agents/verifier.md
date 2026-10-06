@@ -50,8 +50,11 @@ Verifier supports three execution modes:
 
 **Mode Precedence**:
 1. Explicit prompt directive from dispatcher: e.g. `mode: minimal`, `mode: compact`, `mode: full`.
-2. Active project configuration set via `aha verifier <mode>` (shown in the Active Mode banner above).
-3. Default fallback: `full`.
+2. This worktree's override: the first word of `.agents/state/verifier_mode`, when that file
+   exists. `aha verifier <mode>` writes it; it is untracked, so each worktree can run its own
+   mode without touching this file.
+3. The project default in the Active Mode banner above, set when the harness was installed.
+4. Default fallback: `compact`.
 
 ## Why you exist
 
@@ -118,8 +121,9 @@ If the wrapper is unavailable and the dispatcher explicitly authorised a direct 
 
 **Gradle never touches a device.** The wrapper rejects `install*`, `uninstall*`, and
 `connected*` tasks, because those pick a device themselves and would install over whatever
-another worktree is verifying on it. You assemble here and install with `andrun` in floor 3;
-the device is leased separately and the `device-gate` hook holds that lease for you.
+another worktree is verifying on it. You assemble here and install with
+`.agents/scripts/device_lease.py` in floor 3. Devices are leased per worktree, machine-wide:
+the lease decides which device you drive, never a serial from config or from your own pick.
 
 ## Scope the build from the diff, not from the brief
 
@@ -188,21 +192,41 @@ an app to look at a screen nobody touched is cost with no signal. In `compact` m
 **When there is no device.** Say so, explicitly, as `SKIPPED` in the verdict with the
 reason (`No Android device connected`). Never let it pass silently, and never infer the UI works from a green build.
 
+**When mobilerun is not loaded.** The mobilerun MCP server runs only in a worktree whose
+verifier mode is `full` (`aha verifier full`), and it loads when the agent session starts.
+If you were told `mode: full` but have no mobilerun tools, do not drive the device through
+`adb` instead: report floors 3 and 4 as `SKIPPED (mobilerun MCP off -- run aha verifier
+full and restart the session)`.
+
 ### Subagent Verification Planning (following BA Space)
 
 Follow the BA Space device verification pattern. Before executing actions on device, formulate a structured verification plan and register it with the `mobilerun` plan ledger tools (`set_plan`, `mark_step`, `record_finding`, `end_session`):
 
-1. **Pre-flight & Device Discovery**:
-   - Check device health: Call `ping_device()` then `get_device_status()`.
-   - Confirm screen is awake and note device model and resolution.
-   - If device is offline or unreachable, report Floor 3 as `SKIPPED (device unreachable)`.
+1. **Lease a device**:
+   ```sh
+   python .agents/scripts/device_lease.py acquire --json
+   ```
+   - `"status": "ok"` — keep `serial`. It is this worktree's device for the whole dispatch.
+   - `"status": "no_device"` — report Floor 3 as `SKIPPED (No Android device connected)`.
+   - `"status": "busy"` — another worktree holds every device. Queue once with
+     `python .agents/scripts/device_lease.py acquire --wait 600 --json`; if that also returns
+     `busy`, report `SKIPPED (devices busy: held by <owner from holders>)`. Never pick a
+     device yourself, and never use one the lease did not give you.
+
+   Pass `device="<serial>"` on every mobilerun call that takes one. The `device-gate` hook
+   pins it to the lease anyway and pins `adb` the same way (`-s <serial>`), so a different
+   value is overwritten, not honoured — passing it keeps your record honest.
+
+   **Pre-flight**: call `ping_device(device=...)` then `get_device_status(device=...)`.
+   Confirm the screen is awake and note device model and resolution. If the device is
+   offline or unreachable, report Floor 3 as `SKIPPED (device unreachable)`.
 
 2. **Register Verification Plan (`set_plan`)**:
    - Deconstruct verification into concrete milestone steps:
      ```json
      set_plan({
        "steps": [
-         "01: Resolve package and install APK",
+         "01: Install the assembled APK on the leased device",
          "02: Launch app and assert foreground package",
          "03: Capture baseline layout tree and screenshot",
          "04: Execute scenario verification checklist",
@@ -215,12 +239,15 @@ Follow the BA Space device verification pattern. Before executing actions on dev
      ```
 
 3. **Install & Launch**:
-   - Install the variant APK built in floor 1:
+   - Install the APK floor 1 assembled:
      ```sh
-     andrun install --no-build --launch --json
+     python .agents/scripts/device_lease.py install --launch --json
      ```
-     `--no-build` is not optional: without it andrun runs Gradle itself, outside the wrapper.
-     Read `apk.package_name` from the JSON output.
+     It never builds: it installs the newest APK under `*/build/outputs/apk/` on the leased
+     device and launches it. Add `--module app` or `--variant debug` when more than one app
+     module or variant was assembled. Read `apk.package_name` from the JSON output, and
+     confirm `serial` matches the one you leased. `install_failed` is a floor-3 **FAIL**:
+     quote its `output`.
    - Settle into the app:
      Call `open_and_settle(app_id="<package>")` or `start_app(app_id="<package>")`.
    - `mark_step(step_index=0, status="done")`.
@@ -346,13 +373,13 @@ result: PASS | PASS WITH GAPS | FAIL
 
 <commands>
 - ./gradlew :app:assembleDebug — exit 0
-- andrun install --no-build --launch — exit 0
+- python .agents/scripts/device_lease.py install --launch --json — exit 0
 - ./gradlew :feature:home:testDebugUnitTest — exit 0
 </commands>
 
 <device>
 status: VERIFIED | SKIPPED (<reason>)
-device: Pixel 7a, SDK 34, 1080x2400
+device: Pixel 7a, SDK 34, 1080x2400 (serial emulator-5554, leased)
 scenario: smoke | <the scenario you were given>
 plan: 6 steps planned, 6 done
 - 01-launch.png — app foreground, Home rendered
@@ -408,8 +435,9 @@ no spec was supplied.
 - In `full` mode, you reported a clean PASS on a UI-facing change without a device, instead of
   `PASS WITH GAPS` and a `SKIPPED` reason.
 - In `full` mode, you did not set a verification plan via `set_plan` before device execution.
-- You installed with anything other than `andrun install --no-build`, or tried to route
-  around a `device-gate` denial instead of queueing or reporting `SKIPPED`.
+- You installed with anything other than `device_lease.py install`, drove a device the
+  lease did not give you, or tried to route around a `device-gate` denial instead of
+  queueing or reporting `SKIPPED`.
 - You inferred the screen works from a green build, or tapped coordinates without locating the element in the accessibility tree / SOM marks.
 - You cited a screenshot path that does not exist, or reported a crash without the logcat frames.
 - You left the device in dark mode, or uninstalled, cleared data, or changed any other

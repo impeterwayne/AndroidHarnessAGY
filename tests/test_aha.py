@@ -330,7 +330,7 @@ class TestTracks(unittest.TestCase):
         xml = self.ASSETS / "xml" / ".agents"
         for rel in ("hooks.json", "mcp_config.json", "scripts/loop.py",
                     "hooks/rule_gate.py", "hooks/write_guard.py", "hooks/device_gate.py",
-                    "hooks/stop_verifier.py", "hooks/intent_gate.py", "hooks/scrcpy_daemon.py"):
+                    "hooks/stop_verifier.py", "hooks/intent_gate.py", "scripts/device_lease.py"):
             self.assertEqual(
                 (compose / rel).read_bytes(), (xml / rel).read_bytes(),
                 f"{rel} differs between tracks")
@@ -496,6 +496,26 @@ class TestClaudePlatform(unittest.TestCase):
         self.assertEqual(self.adapter("Stop", "stop_verifier.py", payload={"session_id": "s1"}), {})
         self.assertFalse(list(self.claude.rglob("__pycache__")))
 
+    def test_adapter_pins_mobilerun_to_the_leased_device(self):
+        from test_devices import fake_adb
+        self.init()
+        adb, _ = fake_adb(Path(self.temp_dir.name), ["S9"])
+        saved = {k: os.environ.get(k) for k in ("AHA_HOME", "AHA_ADB")}
+        os.environ.update(AHA_HOME=str(self.target / "aha-home"), AHA_ADB=str(adb))
+        try:
+            tap = {"session_id": "s1", "agent_type": "verifier", "tool_name": "mcp__mobilerun__tap_text",
+                   "tool_input": {"text": "Login", "device": "someone-elses"}}
+            out = self.adapter("PreToolUse", "device_gate.py", "pretooluse", payload=tap)["hookSpecificOutput"]
+            self.assertEqual(out["permissionDecision"], "allow")
+            self.assertEqual(out["updatedInput"], {"text": "Login", "device": "S9"})
+            bash = {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "adb shell ls"}}
+            out = self.adapter("PreToolUse", "device_gate.py", "pretooluse", payload=bash)["hookSpecificOutput"]
+            self.assertEqual(out["updatedInput"]["command"], "adb -s S9 shell ls")
+        finally:
+            for key, value in saved.items():
+                os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+        self.assertFalse(list(self.claude.rglob("__pycache__")))
+
 
 class TestVerifierModesAndMobilerun(unittest.TestCase):
     def setUp(self):
@@ -511,6 +531,10 @@ class TestVerifierModesAndMobilerun(unittest.TestCase):
     def _manifest(self, platform="antigravity"):
         p = self.target / (".claude" if platform == "claude" else ".agents") / ".aha.json"
         return json.loads(p.read_text(encoding="utf-8"))
+
+    def _local(self, name, platform="antigravity"):
+        p = self.target / (".claude" if platform == "claude" else ".agents") / "state" / name
+        return p.read_text(encoding="utf-8").strip() if p.is_file() else None
 
     def test_default_verifier_mode_is_compact(self):
         res = run_aha("init", "--no-git-exclude", cwd=self.target)
@@ -545,39 +569,139 @@ class TestVerifierModesAndMobilerun(unittest.TestCase):
         self.assertEqual(res_get.returncode, 0, res_get.stderr)
         self.assertIn("verifier mode: compact", res_get.stdout)
 
-        # Switch to minimal
+        # A worktree override: untracked state, installed files and manifest untouched.
+        verifier_md = self.target / ".agents" / "agents" / "verifier.md"
+        before = verifier_md.read_bytes()
         res_set = run_aha("verifier", "minimal", cwd=self.target)
         self.assertEqual(res_set.returncode, 0, res_set.stderr)
-        self.assertIn("verifier mode set to: minimal", res_set.stdout)
-        self.assertEqual(self._manifest().get("verifier_mode"), "minimal")
-        verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
-        self.assertIn("### Active Mode: minimal", verifier_md)
+        self.assertIn("verifier mode set to: minimal (this worktree)", res_set.stdout)
+        self.assertEqual(self._local("verifier_mode"), "minimal")
+        self.assertEqual(verifier_md.read_bytes(), before)
+        self.assertEqual(self._manifest().get("verifier_mode"), "compact")
+        self.assertIn("verifier mode: minimal (this worktree", run_aha("verifier", cwd=self.target).stdout)
+        self.assertIn("this worktree verifier mode minimal", run_aha("status", cwd=self.target).stdout)
 
-        # Switch to full
         res_set2 = run_aha("verifier", "full", cwd=self.target)
         self.assertEqual(res_set2.returncode, 0, res_set2.stderr)
-        self.assertIn("verifier mode set to: full", res_set2.stdout)
-        self.assertEqual(self._manifest().get("verifier_mode"), "full")
-        verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
-        self.assertIn("### Active Mode: full", verifier_md)
+        self.assertEqual(self._local("verifier_mode"), "full")
+
+        res_reset = run_aha("verifier", "--reset", cwd=self.target)
+        self.assertEqual(res_reset.returncode, 0, res_reset.stderr)
+        self.assertIsNone(self._local("verifier_mode"))
+        self.assertIn("verifier mode: compact (project default", run_aha("verifier", cwd=self.target).stdout)
 
         # Invalid mode is rejected
         res_invalid = run_aha("verifier", "bogus", cwd=self.target)
         self.assertNotEqual(res_invalid.returncode, 0)
 
+    def test_local_state_is_git_ignored_and_removed_by_undo(self):
+        res = run_aha("init", "--platform", "claude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        run_aha("verifier", "full", "--device", "emulator-5554", cwd=self.target)
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"],
+                                cwd=self.target, capture_output=True, text=True).stdout
+        self.assertNotIn("state/", status)
+        self.assertEqual(run_aha("undo", cwd=self.target).returncode, 0)
+        self.assertFalse((self.target / ".claude" / "state" / "verifier_mode").exists())
+        self.assertFalse((self.target / ".claude" / "state" / "device").exists())
+
     def test_aha_update_preserves_verifier_mode(self):
         res_init = run_aha("init", "--verifier", "full", "--no-git-exclude", cwd=self.target)
         self.assertEqual(res_init.returncode, 0, res_init.stderr)
         self.assertEqual(self._manifest().get("verifier_mode"), "full")
+        run_aha("verifier", "minimal", cwd=self.target)
 
         res_update = run_aha("update", "--no-git-exclude", cwd=self.target)
         self.assertEqual(res_update.returncode, 0, res_update.stderr)
         self.assertEqual(self._manifest().get("verifier_mode"), "full")
         verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
         self.assertIn("### Active Mode: full", verifier_md)
+        self.assertEqual(self._local("verifier_mode"), "minimal")
+
+    def _servers(self, platform="antigravity"):
+        path = self.target / (".mcp.json" if platform == "claude" else ".agents/mcp_config.json")
+        return json.loads(path.read_text(encoding="utf-8")).get("mcpServers", {})
+
+    def _claude_local(self):
+        path = self.target / ".claude" / "settings.local.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+    def test_mcp_defaults_follow_what_is_installed(self):
+        res = run_aha("init", "--profile", "android", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self._servers(), {})  # compact verifier, no figma agents
+        self.assertEqual(self._manifest()["mcp_servers"], [])
+        self.assertIn("mobilerun off", res.stdout)
+
+        res = run_aha("init", "--force", "--no-git-exclude", cwd=self.target)  # full profile
+        self.assertEqual(set(self._servers()), {"figma-mcp-android"})
+
+        res = run_aha("init", "--force", "--mcp", "none", "--verifier-mode", "full",
+                      "--no-git-exclude", cwd=self.target)
+        self.assertEqual(set(self._servers()), {"mobilerun"})
+
+    def test_mobilerun_follows_the_worktree_verifier_mode(self):
+        res = run_aha("init", "--mcp", "none", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn("mobilerun", self._servers())
+        res = run_aha("verifier", "full", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("restart the agent session", res.stdout)
+        self.assertIn("mobilerun", self._servers())
+        self.assertIn("mobilerun on", run_aha("verifier", cwd=self.target).stdout)
+        # The toggle keeps the manifest in step, so the file does not read as a local edit.
+        self.assertIn("0 edited locally", run_aha("status", cwd=self.target).stdout)
+        self.assertIn("mobilerun", self._servers())
+        res = run_aha("update", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("mobilerun", self._servers())  # update honours the worktree override
+        run_aha("verifier", "compact", cwd=self.target)
+        self.assertNotIn("mobilerun", self._servers())
+        self.assertNotEqual(run_aha("mcp", "on", "mobilerun", cwd=self.target).returncode, 0)
+
+    def test_mcp_toggles_optional_servers_and_keeps_the_projects_own(self):
+        res = run_aha("init", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        cfg_path = self.target / ".agents" / "mcp_config.json"
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg["mcpServers"]["mine"] = {"command": "x"}
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+
+        res = run_aha("mcp", "off", "figma", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(set(self._servers()), {"mine"})
+        self.assertEqual(self._manifest()["mcp_servers"], [])
+        self.assertIn("figma      off", run_aha("mcp", cwd=self.target).stdout)
+        run_aha("update", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(set(self._servers()), {"mine"})
+        run_aha("mcp", "on", "figma", cwd=self.target)
+        self.assertEqual(set(self._servers()), {"mine", "figma-mcp-android"})
+        self.assertNotEqual(run_aha("mcp", "on", "bogus", cwd=self.target).returncode, 0)
+
+    def test_claude_switches_mobilerun_per_worktree_in_local_settings(self):
+        res = run_aha("init", "--platform", "claude", "--mcp", "none", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(set(self._servers("claude")), {"mobilerun"})  # committed, always defined
+        self.assertEqual(self._claude_local().get("disabledMcpjsonServers"), ["mobilerun"])
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"],
+                                cwd=self.target, capture_output=True, text=True).stdout
+        self.assertNotIn("settings.local.json", status)
+
+        committed = (self.target / ".mcp.json").read_bytes()
+        run_aha("verifier", "full", cwd=self.target)
+        self.assertEqual(self._claude_local().get("enabledMcpjsonServers"), ["mobilerun"])
+        self.assertNotIn("disabledMcpjsonServers", self._claude_local())
+        self.assertEqual((self.target / ".mcp.json").read_bytes(), committed)
+
+        run_aha("mcp", "on", "figma", cwd=self.target)
+        self.assertEqual(set(self._servers("claude")), {"mobilerun", "figma-mcp-android"})
+        run_aha("undo", cwd=self.target)
+        self.assertFalse((self.target / ".claude" / "settings.local.json").exists())
+        self.assertFalse((self.target / ".mcp.json").exists())
 
     def test_mobilerun_installed_and_scrcpy_absent(self):
-        res = run_aha("init", "--profile", "android", "--no-git-exclude", cwd=self.target)
+        res = run_aha("init", "--profile", "android", "--verifier-mode", "full",
+                      "--no-git-exclude", cwd=self.target)
         self.assertEqual(res.returncode, 0, res.stderr)
         skills = {p.name for p in (self.target / ".agents" / "skills").iterdir()}
         self.assertIn("mobilerun", skills)
@@ -589,38 +713,67 @@ class TestVerifierModesAndMobilerun(unittest.TestCase):
         self.assertIn("mobilerun", mcp_cfg.get("mcpServers", {}))
         self.assertNotIn("scrcpy", mcp_cfg.get("mcpServers", {}))
         self.assertEqual(mcp_cfg["mcpServers"]["mobilerun"]["command"], "npx")
+        self.assertNotIn("env", mcp_cfg["mcpServers"]["mobilerun"])  # the lease picks the device
+        self.assertFalse((self.target / ".agents" / "hooks" / "scrcpy_daemon.py").exists())
+        self.assertTrue((self.target / ".agents" / "scripts" / "device_lease.py").is_file())
 
-    def test_device_serial_configuration(self):
+    def test_device_serial_is_a_per_worktree_preference(self):
         res = run_aha("init", "--device", "emulator-5554", "--no-git-exclude", cwd=self.target)
         self.assertEqual(res.returncode, 0, res.stderr)
-        manifest = self._manifest()
-        self.assertEqual(manifest.get("device_serial"), "emulator-5554")
-        mcp_cfg = json.loads((self.target / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
-        self.assertEqual(mcp_cfg["mcpServers"]["mobilerun"]["env"]["MOBILERUN_DEVICE"], "emulator-5554")
+        self.assertNotIn("device_serial", self._manifest())
+        self.assertEqual(self._local("device"), "emulator-5554")
+        mcp_text = (self.target / ".agents" / "mcp_config.json").read_text(encoding="utf-8")
+        self.assertNotIn("emulator-5554", mcp_text)
 
-        # Update verifier with new device serial
-        res_v = run_aha("verifier", "full", "--device", "device-9999", cwd=self.target)
+        res_v = run_aha("verifier", "--device", "device-9999", cwd=self.target)
         self.assertEqual(res_v.returncode, 0, res_v.stderr)
-        manifest = self._manifest()
-        self.assertEqual(manifest.get("device_serial"), "device-9999")
-        mcp_cfg2 = json.loads((self.target / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
-        self.assertEqual(mcp_cfg2["mcpServers"]["mobilerun"]["env"]["MOBILERUN_DEVICE"], "device-9999")
+        self.assertEqual(self._local("device"), "device-9999")
+        self.assertIn("preferred device: device-9999", run_aha("verifier", cwd=self.target).stdout)
+        run_aha("verifier", "--device", "", cwd=self.target)
+        self.assertIsNone(self._local("device"))
 
     def test_claude_platform_verifier_mode_and_mobilerun(self):
         res = run_aha("init", "--platform", "claude", "--verifier-mode", "minimal", "--device", "pixel-7", cwd=self.target)
         self.assertEqual(res.returncode, 0, res.stderr)
         manifest = self._manifest(platform="claude")
         self.assertEqual(manifest.get("verifier_mode"), "minimal")
-        self.assertEqual(manifest.get("device_serial"), "pixel-7")
+        self.assertNotIn("device_serial", manifest)
+        self.assertEqual(self._local("device", platform="claude"), "pixel-7")
 
         verifier_md = (self.target / ".claude" / "agents" / "verifier.md").read_text(encoding="utf-8")
         self.assertIn("### Active Mode: minimal", verifier_md)
+        self.assertIn(".claude/state/verifier_mode", verifier_md)
         # verifier should NOT have tools: restricted so it can invoke MCP
         self.assertNotIn("tools:", verifier_md.split("---")[1])
 
         mcp_cfg = json.loads((self.target / ".mcp.json").read_text(encoding="utf-8"))
         self.assertIn("mobilerun", mcp_cfg.get("mcpServers", {}))
-        self.assertEqual(mcp_cfg["mcpServers"]["mobilerun"]["env"]["MOBILERUN_DEVICE"], "pixel-7")
+        self.assertNotIn("env", mcp_cfg["mcpServers"]["mobilerun"])
+
+        settings = json.loads((self.target / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        matchers = {e.get("matcher") for e in settings["hooks"]["PreToolUse"]}
+        self.assertIn("mcp__mobilerun__.*", matchers)
+
+    def test_update_migrates_a_pinned_serial(self):
+        """Installs from before the lease pinned MOBILERUN_DEVICE; update unpins it."""
+        res = run_aha("init", "--platform", "claude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        mcp_path = self.target / ".mcp.json"
+        mcp = json.loads(mcp_path.read_text(encoding="utf-8"))
+        mcp["mcpServers"]["mobilerun"]["env"] = {"MOBILERUN_DEVICE": "pixel-7"}
+        mcp_path.write_text(json.dumps(mcp), encoding="utf-8")
+        manifest_path = self.target / ".claude" / ".aha.json"
+        manifest = self._manifest(platform="claude")
+        manifest["device_serial"] = "pixel-7"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        res = run_aha("update", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("refreshed mobilerun", res.stdout)
+        mcp = json.loads(mcp_path.read_text(encoding="utf-8"))
+        self.assertNotIn("env", mcp["mcpServers"]["mobilerun"])
+        self.assertNotIn("device_serial", self._manifest(platform="claude"))
+        self.assertEqual(self._local("device", platform="claude"), "pixel-7")
 
 
 if __name__ == "__main__":

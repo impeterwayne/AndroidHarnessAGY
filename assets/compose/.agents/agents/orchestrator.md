@@ -104,7 +104,7 @@ catches the crash but not the wrong layout.
 
 ### Verification Modes & Subagent Planning (following BA Space)
 
-`verifier` supports three modes, configurable globally via `aha verifier <mode>` or chosen per-dispatch in TASK/CONTEXT:
+`verifier` supports three modes: a project default set at install, overridden per worktree by `aha verifier <mode>`, or chosen per-dispatch in TASK/CONTEXT:
 
 - **`minimal`**: When you only need fast static lint and non-negotiables checks over the diff. Specify `mode: minimal` in the prompt.
 - **`compact`**: When you need cross-module Gradle compilation and unit tests without launching a device. Specify `mode: compact` in the prompt.

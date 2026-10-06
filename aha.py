@@ -36,6 +36,10 @@ git-excluded -- a Claude install is meant to be committed. Subagents are pinned 
     python aha.py undo-init [target]  alias for undo
     python aha.py remove    [target]  alias for undo
     python aha.py list                available components and profiles
+    python aha.py verifier [mode]     this worktree's verifier mode (and --device)
+    python aha.py mcp [on|off <name>]  harness MCP servers (mobilerun follows the verifier)
+    python aha.py worktree add <path> [git args]
+                                      git worktree add, then install the same harness
 
     aha init                          Views and XML layouts (the default)
     aha init --track compose          Jetpack Compose
@@ -103,7 +107,25 @@ PLATFORM_LAYOUT = {
 VERIFIER_MODES = ("minimal", "compact", "full")
 DEFAULT_VERIFIER_MODE = "compact"
 VERIFIER_MODE = DEFAULT_VERIFIER_MODE
-DEVICE_SERIAL = None
+
+# Per-worktree settings live under <harness>/state/, which is never installed,
+# never recorded in the manifest, and git-ignored by a `.gitignore` written beside
+# them -- so a committed Claude install stays identical across worktrees while
+# each one runs its own verifier mode and prefers its own device.
+LOCAL_STATE_DIR = "state"
+LOCAL_VERIFIER_MODE = "verifier_mode"
+LOCAL_DEVICE = "device"
+
+# mobilerun follows the verifier: on in a worktree whose mode is `full`, off in
+# every other. The optional servers (figma-mcp-android) ship when something
+# installed uses them; `--mcp` picks them at install and `aha mcp on|off` toggles
+# them later. The manifest records that choice as `mcp_servers` (mobilerun never
+# in it), so `update` carries it forward. None means every optional server -- what
+# installs from before the toggle existed received.
+MOBILERUN = "mobilerun"
+MCP_ALIASES = {"figma": "figma-mcp-android"}
+MCP_SERVERS: list[str] | None = None
+MOBILERUN_ON = False
 
 VERIFIER_MODE_START = "<!-- aha:verifier-mode:start -->"
 VERIFIER_MODE_END = "<!-- aha:verifier-mode:end -->"
@@ -117,12 +139,36 @@ def update_verifier_mode_in_text(text: str, mode: str) -> str:
         return text[:start] + replacement + text[end + len(VERIFIER_MODE_END):]
     return text
 
+
+def read_local_state(target_agents: Path, name: str) -> str | None:
+    try:
+        value = (target_agents / LOCAL_STATE_DIR / name).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value or None
+
+
+def write_local_state(target_agents: Path, name: str, value: str | None) -> None:
+    """Set (or with None, clear) one per-worktree setting under state/."""
+    state = target_agents / LOCAL_STATE_DIR
+    path = state / name
+    if value is None:
+        path.unlink(missing_ok=True)
+        return
+    state.mkdir(parents=True, exist_ok=True)
+    ignore = state / ".gitignore"
+    if not ignore.is_file():
+        ignore.write_text("*\n", encoding="utf-8")
+    path.write_text(value + "\n", encoding="utf-8")
+
+
 # Claude Code only. Files that exist for Claude and not for Antigravity, keyed by
 # their path under `.claude/`.
 CLAUDE_OVERLAY = ASSETS_ROOT / "claude"
 CLAUDE_ADAPTER = "hooks/claude_adapter.py"
 CLAUDE_SETTINGS = "settings.json"
 CLAUDE_MCP = ".mcp.json"
+CLAUDE_LOCAL_SETTINGS = "settings.local.json"
 # Planning stays on the strongest model; every worker defaults to --subagent-model.
 CLAUDE_AGENT_MODELS = {"orchestrator": "opus", "oracle": "opus"}
 DEFAULT_SUBAGENT_MODEL = "sonnet"
@@ -421,12 +467,10 @@ def render(rel: str) -> bytes:
             data = text.encode("utf-8")
         except UnicodeDecodeError:
             pass
-    if rel == "mcp_config.json" and DEVICE_SERIAL:
-        try:
-            text = data.decode("utf-8").replace("<serial>", DEVICE_SERIAL)
-            data = text.encode("utf-8")
-        except UnicodeDecodeError:
-            pass
+    if rel == "mcp_config.json":
+        wanted = wanted_mcp(MOBILERUN_ON)
+        servers = {n: spec for n, spec in source_mcp_servers().items() if n in wanted}
+        data = (json.dumps({"mcpServers": servers}, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     if PLATFORM != "claude" or src.suffix not in TEXT_SUFFIXES:
         return data
     try:
@@ -721,15 +765,205 @@ def strip_exclude_block(existing: str) -> str:
     return current
 
 
-def merged_text(rel: str, src: Path, dst: Path) -> str:
+def merged_text(rel: str, src: Path, dst: Path, ours: list[str] | None = None) -> str:
     if rel == "mcp_config.json":
-        text = merge_json(src, dst, "mcpServers")
-        if DEVICE_SERIAL:
-            text = text.replace("<serial>", DEVICE_SERIAL)
-        return text
+        current = load_json(dst)
+        if current is None:
+            return render(rel).decode("utf-8")
+        servers, _ = sync_mcp_servers(current.get("mcpServers", {}), wanted_mcp(MOBILERUN_ON), ours or [])
+        return json.dumps({**current, "mcpServers": servers}, indent=2, ensure_ascii=False) + "\n"
     if rel == "hooks.json":
         return merge_json(src, dst, None)
     return src.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------
+# MCP servers
+# --------------------------------------------------------------------------
+
+def source_mcp_servers() -> dict:
+    return (load_json(SOURCE_AGENTS / "mcp_config.json") or {}).get("mcpServers", {})
+
+
+def optional_mcp_servers() -> list[str]:
+    """Source servers `--mcp` and `aha mcp` choose between; mobilerun follows the verifier."""
+    return [n for n in source_mcp_servers() if n != MOBILERUN]
+
+
+def mcp_short(name: str) -> str:
+    return {full: short for short, full in MCP_ALIASES.items()}.get(name, name)
+
+
+def resolve_mcp_names(names: list[str]) -> list[str]:
+    available = optional_mcp_servers()
+    resolved = []
+    for raw in names:
+        name = MCP_ALIASES.get(raw.strip().lower(), raw.strip())
+        if name == MOBILERUN:
+            die("mobilerun follows the verifier mode: `aha verifier full` turns it on for this "
+                "worktree, any other mode turns it off")
+        if name not in available:
+            die(f"no such MCP server: {raw} (have: {', '.join(mcp_short(n) for n in available)})")
+        resolved.append(name)
+    return [n for n in available if n in resolved]
+
+
+def default_mcp(selection: dict) -> list[str]:
+    """The optional servers something in this install actually uses."""
+    agents = selection.get("agents")
+    agents = components("agents") if agents is None else agents
+    return [n for n in optional_mcp_servers()
+            if n != MCP_ALIASES["figma"] or any(a.startswith("figma-") for a in agents)]
+
+
+def resolve_mcp(args, manifest: dict | None, selection: dict, updating: bool) -> list[str]:
+    if args.no_mcp:
+        return []
+    if args.mcp is not None:
+        names = [n.strip() for n in args.mcp.split(",") if n.strip()]
+        return [] if names in ([], ["none"]) else resolve_mcp_names(names)
+    if updating and manifest:
+        if "mcp_servers" in manifest:
+            return [n for n in manifest["mcp_servers"] if n in optional_mcp_servers()]
+        return optional_mcp_servers()  # installs from before the toggle shipped them all
+    return default_mcp(selection)
+
+
+def wanted_mcp(mobilerun: bool) -> list[str]:
+    """Every harness server the config should hold, mobilerun included when asked."""
+    optional = optional_mcp_servers() if MCP_SERVERS is None else MCP_SERVERS
+    return [n for n in source_mcp_servers() if n in optional or (n == MOBILERUN and mobilerun)]
+
+
+def effective_verifier_mode(target_agents: Path, default: str) -> str:
+    return read_local_state(target_agents, LOCAL_VERIFIER_MODE) or default
+
+
+def sync_mcp_servers(servers: dict, wanted: list[str], ours: list[str]) -> tuple[dict, dict[str, list[str]]]:
+    """`servers` with the harness's entries brought in line with `wanted`.
+
+    A wanted server missing from the config is added; one already there is refreshed
+    only when it is in `ours`, and an unwanted one is removed only when it is in
+    `ours` -- a same-named entry the project wrote itself is never touched.
+    """
+    out = dict(servers)
+    changes: dict[str, list[str]] = {"added": [], "refreshed": [], "removed": []}
+    for name, spec in source_mcp_servers().items():
+        if name in wanted:
+            if name not in out:
+                out[name] = spec
+                changes["added"].append(name)
+            elif name in ours and out[name] != spec:
+                out[name] = spec
+                changes["refreshed"].append(name)
+        elif name in out and name in ours:
+            del out[name]
+            changes["removed"].append(name)
+    return out, changes
+
+
+def describe_mcp_changes(changes: dict[str, list[str]], where: str) -> str:
+    notes = [f"{verb} {', '.join(mcp_short(n) for n in names)}"
+             for verb, names in changes.items() if names]
+    return f"{'; '.join(notes)} in {where}" if notes else f"{where} already current"
+
+
+def sync_agy_mcp_config(target_agents: Path, manifest: dict, mobilerun: bool) -> str:
+    """Antigravity: edit the installed (untracked, per-worktree) mcp_config.json in place."""
+    rel = "mcp_config.json"
+    path = target_agents / rel
+    if rel not in manifest.get("files", {}) and not path.is_file():
+        return f"{rel} not installed (--no-mcp)"
+    current = load_json(path)
+    if current is None:
+        return f"skipped {rel} (not valid JSON)"
+    servers, changes = sync_mcp_servers(current.get("mcpServers", {}), wanted_mcp(mobilerun),
+                                        list(source_mcp_servers()))
+    if any(changes.values()):
+        write_json(path, {**current, "mcpServers": servers})
+    manifest.setdefault("files", {})[rel] = sha256(path)
+    return describe_mcp_changes(changes, rel)
+
+
+def set_claude_mobilerun(target: Path, target_agents: Path, on: bool) -> str:
+    """Claude: .mcp.json is committed, so each worktree enables or rejects mobilerun in
+    its own git-ignored settings.local.json (enabledMcpjsonServers / disabledMcpjsonServers)."""
+    path = target_agents / CLAUDE_LOCAL_SETTINGS
+    current = load_json(path)
+    if current is None:
+        return f"skipped {CLAUDE_LOCAL_SETTINGS} (not valid JSON)"
+    lists = {key: [n for n in current.get(key, []) if n != MOBILERUN]
+             for key in ("enabledMcpjsonServers", "disabledMcpjsonServers")}
+    lists["enabledMcpjsonServers" if on else "disabledMcpjsonServers"].append(MOBILERUN)
+    updated = {k: v for k, v in current.items() if k not in lists}
+    updated.update({k: v for k, v in lists.items() if v})
+    state = "on" if on else "off"
+    if updated == current:
+        return f"mobilerun already {state} in {CLAUDE_LOCAL_SETTINGS}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, updated)
+    ensure_git_ignored(target, f"{HARNESS_DIR}/{CLAUDE_LOCAL_SETTINGS}")
+    return f"mobilerun {state} in {CLAUDE_LOCAL_SETTINGS} (this worktree)"
+
+
+def unset_claude_mobilerun(target_agents: Path, dry_run: bool) -> str | None:
+    path = target_agents / CLAUDE_LOCAL_SETTINGS
+    current = load_json(path)
+    if not current:
+        return None
+    updated = dict(current)
+    for key in ("enabledMcpjsonServers", "disabledMcpjsonServers"):
+        kept = [n for n in current.get(key, []) if n != MOBILERUN]
+        if kept:
+            updated[key] = kept
+        else:
+            updated.pop(key, None)
+    if updated == current:
+        return None
+    if not dry_run:
+        path.unlink() if not updated else write_json(path, updated)
+    return f"removed mobilerun from {path}"
+
+
+def ensure_git_ignored(target: Path, rel: str) -> None:
+    """Add `rel` to .git/info/exclude unless git already ignores it."""
+    try:
+        if subprocess.run(["git", "-C", str(target), "check-ignore", "-q", rel],
+                          capture_output=True, timeout=10).returncode == 0:
+            return
+    except Exception:
+        return
+    exclude = git_exclude_file(target)
+    if not exclude:
+        return
+    line = git_repo_prefix(target) + rel
+    existing = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+    if line in existing.splitlines():
+        return
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    with exclude.open("a", encoding="utf-8", newline="\n") as fh:
+        fh.write(("" if not existing or existing.endswith("\n") else "\n") + line + "\n")
+
+
+def mcp_summary(optional: list[str] | None, mobilerun: bool) -> str:
+    enabled = optional_mcp_servers() if optional is None else optional
+    parts = []
+    for name in source_mcp_servers():
+        if name == MOBILERUN:
+            parts.append(f"mobilerun {'on' if mobilerun else 'off'} (follows verifier full)")
+        else:
+            parts.append(f"{mcp_short(name)} {'on' if name in enabled else 'off'}")
+    return ", ".join(parts)
+
+
+def apply_mobilerun(target: Path, target_agents: Path, manifest: dict) -> str:
+    """Point mobilerun at this worktree's verifier mode: on for `full`, off otherwise."""
+    global MCP_SERVERS
+    MCP_SERVERS = manifest.get("mcp_servers")
+    on =effective_verifier_mode(target_agents, manifest.get("verifier_mode", DEFAULT_VERIFIER_MODE)) == "full"
+    if PLATFORM == "claude":
+        return set_claude_mobilerun(target, target_agents, on)
+    return sync_agy_mcp_config(target_agents, manifest, on)
 
 
 # --------------------------------------------------------------------------
@@ -839,30 +1073,23 @@ def wire_claude_settings(target_agents: Path, include_hooks: bool, dry_run: bool
     return f"wired hooks into {CLAUDE_SETTINGS}"
 
 
-def merge_claude_mcp(target: Path, previously_added: list[str], dry_run: bool) -> tuple[str, list[str]]:
-    """Add harness MCP servers to .mcp.json. The project's own entries win."""
-    mcp_src = SOURCE_AGENTS / "mcp_config.json"
-    incoming_raw = mcp_src.read_text(encoding="utf-8") if mcp_src.is_file() else "{}"
-    if DEVICE_SERIAL:
-        incoming_raw = incoming_raw.replace("<serial>", DEVICE_SERIAL)
-    try:
-        incoming = (json.loads(incoming_raw) or {}).get("mcpServers", {})
-    except ValueError:
-        incoming = {}
+def merge_claude_mcp(target: Path, previously_added: list[str], wanted: list[str],
+                     dry_run: bool) -> tuple[str, list[str]]:
+    """Bring our servers in .mcp.json in line with `wanted`. The project's own entries win."""
     path = target / CLAUDE_MCP
     current = load_json(path)
     if current is None:
         return f"skipped {CLAUDE_MCP} (not valid JSON)", previously_added
-    servers = dict(current.get("mcpServers", {}))
-    added = [n for n in incoming if n not in servers]
-    for name in added:
-        servers[name] = incoming[name]
-    ours = sorted(set(added) | {n for n in previously_added if n in servers})
-    if not added:
-        return f"{CLAUDE_MCP} already current", ours
+    servers, changes = sync_mcp_servers(current.get("mcpServers", {}), wanted, previously_added)
+    ours = sorted(n for n in servers if n in wanted and (n in previously_added or n in changes["added"]))
+    if not any(changes.values()):
+        return describe_mcp_changes(changes, CLAUDE_MCP), ours
     if not dry_run:
-        write_json(path, {**current, "mcpServers": servers})
-    return f"added {', '.join(added)} to {CLAUDE_MCP}", ours
+        rest = {k: v for k, v in current.items() if k != "mcpServers"}
+        if servers:
+            rest["mcpServers"] = servers
+        path.unlink(missing_ok=True) if not rest else write_json(path, rest)
+    return describe_mcp_changes(changes, CLAUDE_MCP), ours
 
 
 def unmerge_claude(target: Path, target_agents: Path, mcp_added: list[str], dry_run: bool) -> list[str]:
@@ -919,8 +1146,6 @@ def write_manifest(target_agents: Path, files: dict[str, str], args,
         **(extra or {}),
         "files": files,
     }
-    if DEVICE_SERIAL:
-        manifest["device_serial"] = DEVICE_SERIAL
     (target_agents / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
@@ -981,12 +1206,7 @@ def do_install(args, updating: bool) -> int:
     state = classify(target_agents, manifest)
     protected = set(state["modified"]) if (updating and not args.overwrite_local) else set()
 
-    global VERIFIER_MODE, DEVICE_SERIAL
-    if hasattr(args, "device_serial") and args.device_serial:
-        DEVICE_SERIAL = args.device_serial
-    elif updating and manifest and "device_serial" in manifest:
-        DEVICE_SERIAL = manifest["device_serial"]
-
+    global VERIFIER_MODE
     if hasattr(args, "verifier_mode") and args.verifier_mode:
         VERIFIER_MODE = args.verifier_mode
     elif updating and manifest and "verifier_mode" in manifest:
@@ -994,7 +1214,11 @@ def do_install(args, updating: bool) -> int:
     else:
         VERIFIER_MODE = DEFAULT_VERIFIER_MODE
 
+    global MCP_SERVERS, MOBILERUN_ON
     selection = resolve_selection(args)
+    MCP_SERVERS = resolve_mcp(args, manifest, selection, updating)
+    # A worktree override can raise this worktree's verifier, and mobilerun with it.
+    MOBILERUN_ON = not args.no_mcp and effective_verifier_mode(target_agents, VERIFIER_MODE) == "full"
     files = plan_files(selection, include_hooks=not args.no_hooks,
                        include_mcp=not args.no_mcp)
     if not files:
@@ -1021,6 +1245,9 @@ def do_install(args, updating: bool) -> int:
         if rel in MERGEABLE and dst.is_file() and manifest is None:
             text = merged_text(rel, src, dst)
             merged.append(rel)
+        elif rel == "mcp_config.json" and dst.is_file():
+            # Ours since install: keep the project's servers, bring ours in line.
+            text = merged_text(rel, src, dst, ours=list(source_mcp_servers()))
 
         if not args.dry_run:
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -1059,18 +1286,27 @@ def do_install(args, updating: bool) -> int:
     if stale and args.prune and not args.dry_run:
         prune_empty_dirs(target_agents)
 
-    claude_notes, extra = [], {}
+    claude_notes, extra = [], {"mcp_servers": MCP_SERVERS}
     if PLATFORM == "claude":
         claude_notes.append(wire_claude_settings(target_agents, not args.no_hooks, args.dry_run))
         mcp_added = (manifest or {}).get("mcp_added", [])
         if not args.no_mcp:
-            note, mcp_added = merge_claude_mcp(target, mcp_added, args.dry_run)
+            # .mcp.json is committed, so it always defines mobilerun; each worktree's
+            # settings.local.json switches it on or off.
+            note, mcp_added = merge_claude_mcp(target, mcp_added, wanted_mcp(True), args.dry_run)
             claude_notes.append(note)
-        extra = {"subagent_model": SUBAGENT_MODEL, "mcp_added": mcp_added}
+            if not args.dry_run and MOBILERUN in mcp_added:
+                claude_notes.append(set_claude_mobilerun(target, target_agents, MOBILERUN_ON))
+        extra.update(subagent_model=SUBAGENT_MODEL, mcp_added=mcp_added)
 
     if not args.dry_run:
         target_agents.mkdir(parents=True, exist_ok=True)
         write_manifest(target_agents, digests, args, extra)
+        # Earlier installs pinned the serial in the manifest and MCP config; it is a
+        # per-worktree preference now, carried over once.
+        device = getattr(args, "device_serial", None) or (manifest or {}).get("device_serial")
+        if device and (args.device_serial or not read_local_state(target_agents, LOCAL_DEVICE)):
+            write_local_state(target_agents, LOCAL_DEVICE, device)
 
     exclude_status = None
     exclude_n = 0
@@ -1101,7 +1337,14 @@ def do_install(args, updating: bool) -> int:
     print(f"  platform     {PLATFORM}")
     print(f"  track        {args.track}")
     print(f"  profile      {args.profile}  (source {source_commit()})")
-    print(f"  verifier     {VERIFIER_MODE}")
+    local_mode = read_local_state(target_agents, LOCAL_VERIFIER_MODE)
+    local_device = read_local_state(target_agents, LOCAL_DEVICE)
+    print(f"  verifier     {VERIFIER_MODE}"
+          + (f"  (this worktree: {local_mode})" if local_mode else ""))
+    if local_device:
+        print(f"  device       prefers {local_device} when free (this worktree only)")
+    if not args.no_mcp:
+        print(f"  mcp          {mcp_summary(MCP_SERVERS, MOBILERUN_ON)}")
     print(f"  {verb:<12} {len(written)} file(s)"
           + (f", {unchanged_n} already current" if unchanged_n else ""))
     if root_doc == "created":
@@ -1160,6 +1403,12 @@ def do_status(args) -> int:
           f"  verifier {manifest.get('verifier_mode', DEFAULT_VERIFIER_MODE)}"
           f"  commit {manifest.get('commit', '?')}")
     print(f"  source       {manifest.get('source', '?')}")
+    for name, label in ((LOCAL_VERIFIER_MODE, "verifier mode"), (LOCAL_DEVICE, "preferred device")):
+        value = read_local_state(target_agents, name)
+        if value:
+            print(f"  this worktree {label} {value}")
+    if "mcp_servers" in manifest or PLATFORM != "claude" or manifest.get("mcp_added"):
+        print(f"  mcp          {mcp_summary(manifest.get('mcp_servers'), MOBILERUN_ON)}")
 
     now = source_commit()
     if manifest.get("commit") not in (now, "unknown"):
@@ -1246,11 +1495,18 @@ def do_remove(args) -> int:
         p = target_agents / m
         if p.is_file() and p not in files_to_delete:
             files_to_delete.append(p)
+    local = target_agents / LOCAL_STATE_DIR
+    for name in (LOCAL_VERIFIER_MODE, LOCAL_DEVICE, ".gitignore"):
+        if (local / name).is_file():
+            files_to_delete.append(local / name)
 
     claude_notes = []
     if PLATFORM == "claude":
         claude_notes = unmerge_claude(target, target_agents, (manifest or {}).get("mcp_added", []),
                                       args.dry_run)
+        note = unset_claude_mobilerun(target_agents, args.dry_run)
+        if note:
+            claude_notes.append(note)
 
     all_agent_files = {p.resolve() for p in target_agents.rglob("*") if p.is_file()}
     delete_set = {p.resolve() for p in files_to_delete}
@@ -1317,59 +1573,121 @@ def do_remove(args) -> int:
 
 
 def do_verifier(args) -> int:
+    """Get or set this worktree's verifier mode and preferred device.
+
+    Both are per-worktree, untracked settings: the verifier reads its mode from
+    state/verifier_mode before the project default in verifier.md, and the device
+    lease prefers state/device when it is free. mobilerun follows the mode -- on
+    for `full`, off otherwise -- through per-worktree config only, so a committed
+    install stays clean in every worktree.
+    """
     target = Path(args.target).resolve()
     target_agents = target / HARNESS_DIR
     manifest = read_manifest(target_agents)
-    if not manifest and not target_agents.is_dir():
+    if not manifest:
         die(f"no harness found at {target} -- run 'aha init' first")
+    default = manifest.get("verifier_mode", DEFAULT_VERIFIER_MODE)
 
-    if args.mode is None:
-        vmode = (manifest or {}).get("verifier_mode", DEFAULT_VERIFIER_MODE)
-        print(f"verifier mode: {vmode} (target: {target})")
+    changed = []
+    if args.reset:
+        write_local_state(target_agents, LOCAL_VERIFIER_MODE, None)
+        changed.append(f"verifier mode reset to the project default: {default}")
+    elif args.mode:
+        write_local_state(target_agents, LOCAL_VERIFIER_MODE, args.mode)
+        changed.append(f"verifier mode set to: {args.mode} (this worktree)")
+    if args.device_serial is not None:
+        write_local_state(target_agents, LOCAL_DEVICE, args.device_serial or None)
+        changed.append(f"preferred device: {args.device_serial} (this worktree)"
+                       if args.device_serial else "preferred device cleared")
+    if args.reset or args.mode:
+        note = apply_mobilerun(target, target_agents, manifest)
+        write_json(target_agents / MANIFEST_NAME, manifest)
+        changed.append(f"{note} -- restart the agent session to load the change")
+    for line in changed:
+        print(line)
+    if changed:
         return 0
 
-    new_mode = args.mode
-    verifier_rel = "agents/verifier.md"
-    verifier_file = target_agents / verifier_rel
-
-    if verifier_file.is_file():
-        content = verifier_file.read_text(encoding="utf-8")
-        updated = update_verifier_mode_in_text(content, new_mode)
-        verifier_file.write_text(updated, encoding="utf-8")
-
-    if manifest:
-        manifest["verifier_mode"] = new_mode
-        if verifier_file.is_file():
-            manifest.setdefault("files", {})[verifier_rel] = sha256(verifier_file)
-        (target_agents / MANIFEST_NAME).write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-    if hasattr(args, "device_serial") and args.device_serial:
-        mcp_file = target_agents / "mcp_config.json"
-        if mcp_file.is_file():
-            try:
-                mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
-                if "mcpServers" in mcp_data and "mobilerun" in mcp_data["mcpServers"]:
-                    mcp_data["mcpServers"]["mobilerun"].setdefault("env", {})["MOBILERUN_DEVICE"] = args.device_serial
-                mcp_file.write_text(json.dumps(mcp_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            except Exception:
-                pass
-        claude_mcp = target / CLAUDE_MCP
-        if claude_mcp.is_file():
-            try:
-                cmcp_data = json.loads(claude_mcp.read_text(encoding="utf-8"))
-                if "mcpServers" in cmcp_data and "mobilerun" in cmcp_data["mcpServers"]:
-                    cmcp_data["mcpServers"]["mobilerun"].setdefault("env", {})["MOBILERUN_DEVICE"] = args.device_serial
-                claude_mcp.write_text(json.dumps(cmcp_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            except Exception:
-                pass
-        if manifest:
-            manifest["device_serial"] = args.device_serial
-            (target_agents / MANIFEST_NAME).write_text(
-                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-    print(f"verifier mode set to: {new_mode} (target: {target})")
+    local = read_local_state(target_agents, LOCAL_VERIFIER_MODE)
+    source = "this worktree" if local else "project default"
+    print(f"verifier mode: {local or default} ({source}; target: {target})")
+    device = read_local_state(target_agents, LOCAL_DEVICE)
+    print(f"preferred device: {device or 'none -- any free device'}")
+    print(f"mcp: {mcp_summary(manifest.get('mcp_servers'), (local or default) == 'full')}")
     return 0
+
+
+def do_mcp(args) -> int:
+    """Show the harness MCP servers, or switch an optional one on or off."""
+    target = Path(args.target).resolve()
+    target_agents = target / HARNESS_DIR
+    manifest = read_manifest(target_agents)
+    if not manifest:
+        die(f"no harness found at {target} -- run 'aha init' first")
+    mode = effective_verifier_mode(target_agents, manifest.get("verifier_mode", DEFAULT_VERIFIER_MODE))
+    enabled = manifest.get("mcp_servers")
+    enabled = optional_mcp_servers() if enabled is None else enabled
+
+    if args.action is None:
+        for name in source_mcp_servers():
+            if name == MOBILERUN:
+                print(f"  {'mobilerun':<10} {'on ' if mode == 'full' else 'off'}  "
+                      f"follows the verifier (this worktree: {mode}) -- `aha verifier full|compact`")
+            else:
+                print(f"  {mcp_short(name):<10} {'on ' if name in enabled else 'off'}  "
+                      f"`aha mcp {'off' if name in enabled else 'on'} {mcp_short(name)}`")
+        return 0
+
+    if not args.names:
+        die(f"name a server to switch {args.action}: {', '.join(mcp_short(n) for n in optional_mcp_servers())}")
+    names = resolve_mcp_names(args.names)
+    wanted = [n for n in optional_mcp_servers()
+              if (n in enabled and n not in names) or (n in names and args.action == "on")]
+    manifest["mcp_servers"] = wanted
+    global MCP_SERVERS
+    MCP_SERVERS = wanted
+    if PLATFORM == "claude":
+        note, manifest["mcp_added"] = merge_claude_mcp(
+            target, manifest.get("mcp_added", []), wanted_mcp(True), dry_run=False)
+    else:
+        note = sync_agy_mcp_config(target_agents, manifest, mode == "full")
+    write_json(target_agents / MANIFEST_NAME, manifest)
+    print(f"{', '.join(mcp_short(n) for n in names)} {args.action}: {note}")
+    print("restart the agent session to load the change")
+    return 0
+
+
+def do_worktree(args) -> int:
+    """`git worktree add`, then install the same harness into the new worktree."""
+    source = Path(args.source).resolve()
+    manifest = read_manifest(source / HARNESS_DIR)
+    if not manifest:
+        die(f"no harness installed at {source} -- run this from a worktree that has one")
+    prefix = git_repo_prefix(source)
+    proc = subprocess.run(["git", "-C", str(source), "worktree", "add", args.path, *args.git_args])
+    if proc.returncode != 0:
+        return proc.returncode
+    worktree = Path(args.path)
+    if not worktree.is_absolute():
+        worktree = (Path.cwd() / worktree).resolve()
+    target = worktree / prefix if prefix else worktree
+    checked_out = read_manifest(target / HARNESS_DIR)
+    if checked_out:
+        # A committed install arrives with the checkout; only the per-worktree
+        # mobilerun switch is missing.
+        note = apply_mobilerun(target, target / HARNESS_DIR, checked_out)
+        print(f"aha: {target / HARNESS_DIR} came with the checkout (committed install); {note}")
+        return 0
+    optional = manifest.get("mcp_servers")
+    argv = ["init", str(target), "--platform", PLATFORM,
+            "--track", manifest.get("track", DEFAULT_TRACK),
+            "--profile", manifest.get("profile", "full"),
+            "--verifier-mode", manifest.get("verifier_mode", DEFAULT_VERIFIER_MODE)]
+    if optional is not None:
+        argv += ["--mcp", ",".join(mcp_short(n) for n in optional) or "none"]
+    if manifest.get("subagent_model"):
+        argv += ["--subagent-model", manifest["subagent_model"]]
+    return main(argv)
 
 
 def do_list(args) -> int:
@@ -1410,6 +1728,13 @@ def do_list(args) -> int:
     print("  compact    Gradle assemble & unit tests (default, no device)")
     print("  full       Gradle assemble, unit tests, and mobilerun app launch")
     print()
+    print("mcp servers")
+    for name in source_mcp_servers():
+        rule = ("on when the verifier mode is full" if name == MOBILERUN
+                else "on when the figma agents ship" if name == MCP_ALIASES["figma"]
+                else "on by default")
+        print(f"  {mcp_short(name):<10} {rule}")
+    print()
     print("tracks")
     for name in TRACKS:
         agents_dir = ASSETS_ROOT / name / ".agents"
@@ -1440,7 +1765,8 @@ def add_selection_flags(p: argparse.ArgumentParser) -> None:
                    help=f"verification mode: minimal (lint only), compact (gradle build), "
                         f"full (app launch with mobilerun) (default: {DEFAULT_VERIFIER_MODE})")
     p.add_argument("--device", "--device-serial", dest="device_serial", default=None,
-                   help="target device serial for mobilerun (configures MOBILERUN_DEVICE)")
+                   help="device serial this worktree's lease prefers when it is free "
+                        "(untracked, per worktree; the lease still decides)")
     p.add_argument("--track", default=None, choices=TRACKS,
                    help=f"which payload to install: {' or '.join(TRACKS)} "
                         f"(default: {DEFAULT_TRACK})")
@@ -1453,7 +1779,11 @@ def add_selection_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-agents", action="store_true")
     p.add_argument("--no-rules", action="store_true")
     p.add_argument("--no-hooks", action="store_true", help="skip hooks.json and hooks/")
-    p.add_argument("--no-mcp", action="store_true", help="skip mcp_config.json")
+    p.add_argument("--mcp", default=None,
+                   help="optional MCP servers to enable, comma-separated: figma, or none "
+                        "(default: figma when the figma agents ship). mobilerun is not "
+                        "listed here: it is on exactly when the verifier mode is full")
+    p.add_argument("--no-mcp", action="store_true", help="skip MCP config entirely")
     p.add_argument("--no-agents-md", action="store_true",
                    help=f"skip {ROOT_DOC} (leaves the project root untouched)")
     p.add_argument("--no-git-exclude", action="store_true",
@@ -1513,23 +1843,64 @@ def main(argv: list[str]) -> int:
         "verifier",
         help="get or set the verification mode (minimal, compact, full)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="Get or set the active verification mode for a project.\n\n"
+        description="Get or set this worktree's verification mode. The setting is untracked\n"
+                    "(state/verifier_mode) and overrides the project default chosen at install\n"
+                    "with --verifier-mode, so worktrees can verify differently.\n\n"
                     "Modes:\n"
                     "  minimal  - lint checks & non-negotiables only (fastest)\n"
                     "  compact  - Gradle assemble & unit tests (default, no device)\n"
                     "  full     - Gradle assemble, unit tests, and mobilerun app launch\n\n"
                     "Examples:\n"
-                    "  aha verifier                     show current verifier mode\n"
-                    "  aha verifier compact             set verifier mode to compact\n"
-                    "  aha verifier full /path/to/proj  set verifier mode for project\n",
+                    "  aha verifier                          show this worktree's mode\n"
+                    "  aha verifier full                     verify on device in this worktree\n"
+                    "  aha verifier --reset                  back to the project default\n"
+                    "  aha verifier --device emulator-5554   prefer that device when free\n",
     )
     p_ver.add_argument("mode", nargs="?", choices=VERIFIER_MODES, default=None,
                        help=f"verification mode to set ({', '.join(VERIFIER_MODES)})")
     p_ver.add_argument("target", nargs="?", default=".",
                        help="target directory (default: .)")
+    p_ver.add_argument("--reset", action="store_true",
+                       help="drop this worktree's override and use the project default")
     p_ver.add_argument("--device", "--device-serial", dest="device_serial", default=None,
-                       help="target device serial for mobilerun (configures MOBILERUN_DEVICE)")
+                       help="device this worktree's lease prefers when free ('' clears it)")
     add_platform_flag(p_ver)
+
+    p_wt = sub.add_parser(
+        "worktree",
+        help="git worktree add, then install the same harness into it",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Create a git worktree and install the harness this one has -- same\n"
+                    "platform, track, profile, verifier default and subagent model. A\n"
+                    "committed Claude install arrives with the checkout and is left alone.\n\n"
+                    "Examples:\n"
+                    "  aha worktree add ../app-login -b feature/login\n"
+                    "  aha worktree add ../app-hotfix origin/release\n",
+    )
+    p_wt.add_argument("--from", dest="source", default=".",
+                      help="the installed project to copy the setup from (default: .)")
+    add_platform_flag(p_wt)
+    p_wt.add_argument("action", choices=["add"])
+    p_wt.add_argument("path", help="where to create the worktree")
+    p_wt.add_argument("git_args", nargs=argparse.REMAINDER,
+                      help="passed to `git worktree add` after the path (e.g. -b <branch>)")
+
+    p_mcp = sub.add_parser(
+        "mcp",
+        help="show the harness MCP servers, or switch an optional one on or off",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Show or switch the harness MCP servers. mobilerun is not switched here:\n"
+                    "it is on in a worktree whose verifier mode is full and off otherwise\n"
+                    "(`aha verifier full`). Restart the agent session after a change.\n\n"
+                    "Examples:\n"
+                    "  aha mcp                 list servers and whether they are on\n"
+                    "  aha mcp off figma       stop loading the figma server\n"
+                    "  aha mcp on figma\n",
+    )
+    p_mcp.add_argument("action", nargs="?", choices=["on", "off"], default=None)
+    p_mcp.add_argument("names", nargs="*", help="servers to switch (figma)")
+    p_mcp.add_argument("--target", default=".", help="target directory (default: .)")
+    add_platform_flag(p_mcp)
 
     p_ls = sub.add_parser("list", help="show available components and profiles")
     p_ls.add_argument("--track", default=DEFAULT_TRACK, choices=TRACKS,
@@ -1547,6 +1918,14 @@ def main(argv: list[str]) -> int:
         return do_install(args, updating=False)
     if args.command in ("update", "status", "remove", "undo", "undo-init", "verifier"):
         select_platform(detect_platform(Path(args.target).resolve(), args.platform))
+    if args.command == "mcp":
+        select_platform(detect_platform(Path(args.target).resolve(), args.platform))
+        prev = read_manifest(Path(args.target).resolve() / HARNESS_DIR)
+        select_track((prev or {}).get("track", DEFAULT_TRACK))
+        return do_mcp(args)
+    if args.command == "worktree":
+        select_platform(detect_platform(Path(args.source).resolve(), args.platform))
+        return do_worktree(args)
     if args.command == "verifier":
         prev = read_manifest(Path(args.target).resolve() / HARNESS_DIR)
         select_track((prev or {}).get("track", DEFAULT_TRACK))
@@ -1573,6 +1952,11 @@ def main(argv: list[str]) -> int:
         prev = read_manifest(Path(args.target).resolve() / HARNESS_DIR)
         select_track((prev or {}).get("track", DEFAULT_TRACK))
         SUBAGENT_MODEL = (prev or {}).get("subagent_model") or DEFAULT_SUBAGENT_MODEL
+        global MCP_SERVERS, MOBILERUN_ON, VERIFIER_MODE
+        VERIFIER_MODE = (prev or {}).get("verifier_mode", DEFAULT_VERIFIER_MODE)
+        MCP_SERVERS = (prev or {}).get("mcp_servers")
+        MOBILERUN_ON = effective_verifier_mode(
+            Path(args.target).resolve() / HARNESS_DIR, VERIFIER_MODE) == "full"
         return do_status(args)
     if args.command in ("remove", "undo", "undo-init"):
         prev = read_manifest(Path(args.target).resolve() / HARNESS_DIR)

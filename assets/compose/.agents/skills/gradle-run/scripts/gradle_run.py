@@ -427,7 +427,7 @@ DEVICE_TASK = re.compile(
 
 
 def device_task(command: list[str]) -> str | None:
-    """Gradle tasks that pick a device themselves, ignoring the andrun lease."""
+    """Gradle tasks that pick a device themselves, ignoring the device lease."""
     for argument in command[1:]:
         found = DEVICE_TASK.search(argument)
         if found:
@@ -444,7 +444,7 @@ def effective_command(command: list[str]) -> list[str]:
         raise ValueError(
             f"{task} installs to a device Gradle chooses, which collides with any other "
             "worktree holding that device; assemble here and install with "
-            "`andrun install --no-build`"
+            "`python .agents/scripts/device_lease.py install`"
         )
     effective = list(command)
     try:

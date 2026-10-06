@@ -1,82 +1,82 @@
 #!/usr/bin/env python3
-"""Device gate: one Android device, many worktrees.
+"""Device gate: one pool of Android devices, many worktrees.
 
-Every worktree that runs the harness shares one pool of attached devices. Two
-agents installing the same `applicationId` overwrite each other, and the second
-one's screenshots are of the first one's build -- a failure that looks exactly
-like success. `andrun`'s lease store (~/.andrun/device_queue.json) is the
-machine-global arbiter; this hook makes using it non-optional.
+Every worktree that runs the harness shares the devices attached to one machine.
+Two agents installing the same `applicationId` overwrite each other, and the
+second one's screenshots are of the first one's build -- a failure that looks
+exactly like success. `scripts/device_lease.py` is the machine-global arbiter;
+this hook makes using it non-optional, for the shell and for mobilerun alike.
 
 PreToolUse on `run_command`:
-  * a command that drives a device (`scrcpy-cli`, `adb`) is rewritten to run
-    under `andrun with`, which holds this worktree's lease, QUEUES for a device
-    when every one is busy, points the command at the leased serial and exports
-    ANDROID_SERIAL. The wait therefore happens inside the agent's own tool call,
-    which has minutes of budget -- not in this hook, which has seconds, and not
-    as a suggestion the agent is free to decline;
-  * `andrun`'s own device commands pass through untouched: they resolve this
-    worktree's lease and queue for a device by themselves;
-  * the forms that pick a device themselves and ignore the lease entirely are
-    denied with their replacement: `adb install`, Gradle's
-    `install*`/`connected*`/`uninstall*` tasks, `andrun install`/`run` without
-    `--no-build` (which would also run Gradle outside the gradle-run wrapper),
-    and `scrcpy-cli daemon start|stop` (the scrcpy-daemon hook owns those).
+  * an `adb` command that drives a device takes this worktree's lease and is
+    pinned to it: any transport selector the agent wrote (`-s X`, `-t N`, `-d`,
+    `-e`) is replaced by `-s <leased serial>`, so an agent cannot reach a device
+    it does not hold and never needs to carry a serial;
+  * Gradle's `install*`/`connected*`/`uninstall*` tasks are denied -- they pick a
+    device themselves -- with the assemble-then-`device_lease.py install` route;
+  * `device_lease.py acquire|install` passes, and registers this conversation as
+    an owner so the Stop path below releases what it took.
 
-No subprocess runs on the PreToolUse path: classification is pure regex, so the
-cost is one Python start per `run_command`.
+PreToolUse on mobilerun MCP tools:
+  * a tool that acts on a device has its `device` argument overwritten with the
+    leased serial, whatever the agent passed;
+  * the plan-ledger and documentation tools pass untouched;
+  * `system_intent` is denied: it takes no `device` argument, so it cannot be
+    pinned to the lease.
 
-Stop: refcounted by conversationId, like scrcpy_daemon -- a finishing subagent
-must not release a device its dispatcher is still using. The last one out
-releases the lease.
+When every device is leased elsewhere the verdict is `deny`, naming the holders,
+plus the blocking command that queues for one: a hook cannot wait minutes, the
+agent's own shell call can and stays interruptible. When no device is attached
+at all the call passes, so the verifier observes "no device" and reports SKIPPED.
+
+Stop: refcounted by conversationId -- a finishing subagent must not release a
+device its dispatcher is still using. The last one out releases the lease.
 
 Fails open on every error: a bug here must never block work.
 
-  hooks/device_gate.py                  # hook mode: JSON payload on stdin
+  hooks/device_gate.py pretooluse       # hook mode: JSON payload on stdin
   hooks/device_gate.py stop             # Stop mode
   hooks/device_gate.py --off|--on|--status
   hooks/device_gate.py --self-test
 """
 
+import importlib.util
 import json
-import os
 import re
-import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state" / "device_gate"
+HARNESS_DIR = Path(__file__).resolve().parent.parent
+STATE_DIR = HARNESS_DIR / "state" / "device_gate"
 OWNERS_DIR = STATE_DIR / "owners"
 OFF_SWITCH = STATE_DIR / "off"
 LOG_FILE = STATE_DIR / "log.txt"
+LEASE_SCRIPT = HARNESS_DIR / "scripts" / "device_lease.py"
 
 PASS_DECISION = "allow"
-
-# How long a blocked device command waits for a free device, inside the agent's
-# own tool call. Long enough to outlast another worktree's verification.
 QUEUE_WAIT_SEC = 600
-LEASE_TTL_SEC = 1800
-ANDRUN_TIMEOUT_SEC = 20
 
 SEGMENT_SPLIT = re.compile(r"(\s*(?:&&|\|\||;)\s*)")
 
-ADB = re.compile(r"(?<![\w.-])adb(?:\.exe)?(?=\s|$)", re.I)
-SCRCPY = re.compile(r"(?<![\w.-])scrcpy-cli(?:\.exe|\.cmd)?(?=\s|$)", re.I)
-ANDRUN = re.compile(r"(?<![\w.-])andrun(?:\.exe|\.bat|\.cmd)?(?=\s|$)", re.I)
-GRADLEW = re.compile(r"(?<![\w.-])(?:\./)?gradlew(?:\.bat)?(?=\s|$)", re.I)
-
-# adb subcommands that do not occupy a device (transport/discovery only).
-ADB_FREE = re.compile(
-    r"^\s*(?:-[a-z]\s+\S+\s+)*(?:devices|version|help|start-server|kill-server|connect|disconnect|pair|keygen)\b",
+# `adb` in command position only -- after env assignments, PowerShell's `&`, or a
+# (quoted) path -- so `grep -rn adb docs/` is not mistaken for a device command.
+ADB = re.compile(
+    r"""^\s*(?:&\s*)?(?:[A-Za-z_]\w*=\S*\s+)*"""
+    r"""(?:"[^"]*[/\\]adb(?:\.exe)?"|'[^']*[/\\]adb(?:\.exe)?'|(?:[^\s"']*[/\\])?adb(?:\.exe)?)"""
+    r"""(?=\s|$)""",
     re.I,
 )
-# scrcpy-cli actions that only report; leasing for these would lock a device for
-# a status check.
-SCRCPY_FREE = re.compile(r"(?<!\S)(?:device-list|version|update|daemon\s+status)(?!\S)", re.I)
-# andrun subcommands that read the pool rather than drive a device.
-ANDRUN_FREE = re.compile(
-    r"(?<!\S)(?:devices|detect|serial|queue|scan-ports|pair|connect|disconnect|--version|-V|--help|tui)(?!\S)",
+GRADLEW = re.compile(r"(?<![\w.-])(?:\./)?gradlew(?:\.bat)?(?=\s|$)", re.I)
+LEASE_CMD = re.compile(r"device_lease\.py[\"']?\s+(?:acquire|install)\b", re.I)
+
+# adb's global options before the subcommand. -s/-t/-d/-e pick the device and
+# are replaced by the lease; -H/-P/-L address the adb server and are kept.
+ADB_GLOBAL = re.compile(r"\s+(-[stHPL])\s+(\S+)|\s+(-[dea])(?=\s|$)")
+ADB_SELECTORS = {"-s", "-t", "-d", "-e"}
+# adb subcommands that do not occupy a device (transport/discovery only).
+ADB_FREE = re.compile(
+    r"^\s*(?:devices|version|help|start-server|kill-server|connect|disconnect|pair|keygen|mdns)\b",
     re.I,
 )
 
@@ -84,21 +84,14 @@ GRADLE_DEVICE_TASK = re.compile(
     r"(?<![\w:])(?::[\w:-]+:)?(?:(?:un)?install(?!Dist|ShadowDist)[A-Z]\w*|connected[A-Z]\w*)(?![\w])"
 )
 
-ALREADY_WRAPPED = re.compile(r"^andrun(?:\.exe|\.bat|\.cmd)?\s+with(?:\s|$)", re.I)
-
-DENIALS = (
-    (
-        re.compile(r"(?<![\w.-])adb(?:\.exe)?\s(?:[^&|;]*\s)?install\b", re.I),
-        "`adb install` bypasses the device lease and ignores which worktree owns the device.\n"
-        "  andrun install <apk> --no-build --launch --json\n"
-        "andrun resolves this worktree's lease itself, queueing for a device if one is busy.",
-    ),
-    (
-        re.compile(r"(?<![\w.-])scrcpy-cli(?:\.exe|\.cmd)?\s+daemon\s+(?:start|stop)\b", re.I),
-        "The scrcpy daemon is owned by the scrcpy-daemon hook, which refcounts it across "
-        "conversations. Issue actions directly; never start or stop the daemon yourself.",
-    ),
-)
+# `mcp__mobilerun__tap` in Claude Code; the separator is matched loosely because
+# Antigravity's MCP tool naming is unverified.
+MOBILERUN_TOOL = re.compile(r"mobilerun(?:__|[_./:])(\w+)$", re.I)
+MOBILERUN_UNPINNED = {
+    "set_plan", "mark_step", "record_finding", "end_session",
+    "get_usage_guide", "web_search", "echo", "list_devices",
+}
+MOBILERUN_UNPINNABLE = {"system_intent"}
 
 
 def log(msg):
@@ -110,30 +103,47 @@ def log(msg):
         pass
 
 
-def andrun_cmd():
-    exe = shutil.which("andrun")
-    return [exe] if exe else [sys.executable, "-m", "andrun"]
+_LEASES = None
 
 
-def andrun_json(args, cwd, timeout=ANDRUN_TIMEOUT_SEC):
-    """Runs andrun and returns (parsed_json_or_None, returncode). Stop path only."""
+def leases():
+    """scripts/device_lease.py, imported once. Lives beside the hooks in every install."""
+    global _LEASES
+    if _LEASES is None:
+        spec = importlib.util.spec_from_file_location("device_lease", LEASE_SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+        _LEASES = module
+    return _LEASES
+
+
+def take_lease(conversation_id):
+    """try_acquire for this worktree. Returns None when the lease store is unusable."""
     try:
-        proc = subprocess.run(
-            andrun_cmd() + args + ["--json"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
-        )
+        dl = leases()
+        task = f"agent {conversation_id[:16]}" if conversation_id else "agent session"
+        return dl.try_acquire(prefer=dl.preferred(), task=task)
     except Exception as exc:
-        log(f"andrun {' '.join(args)}: {type(exc).__name__}: {exc}")
-        return None, -1
-    try:
-        return json.loads(proc.stdout.strip() or "{}"), proc.returncode
-    except Exception:
-        log(f"andrun {' '.join(args)}: unparseable output: {proc.stdout[:200]!r}")
-        return None, proc.returncode
+        log(f"lease: {type(exc).__name__}: {exc}")
+        return None
+
+
+def queue_hint():
+    return (
+        f"Queue for one -- this blocks until a device frees up, then holds it for this worktree:\n"
+        f"  python .agents/scripts/device_lease.py acquire --wait {QUEUE_WAIT_SEC}\n"
+        "then retry. If it times out, report the device step SKIPPED (devices busy). Never "
+        "pass a serial yourself or reach the device another way."
+    )
+
+
+def busy_reason(result):
+    lines = ["Every attached device is leased by another worktree:"]
+    for h in result.get("holders", []):
+        lines.append(f"  {h['serial']}  held by {h['owner']}  ({h['task'] or 'no task'}, "
+                     f"{h['expires_in'] // 60}m left)")
+    return "\n".join(lines) + "\n" + queue_hint()
 
 
 def segments(command):
@@ -141,46 +151,44 @@ def segments(command):
     return SEGMENT_SPLIT.split(command)
 
 
+def split_adb(segment):
+    """(head through `adb`, global options, rest from the subcommand) or None."""
+    found = ADB.search(segment)
+    if not found:
+        return None
+    head, rest = segment[: found.end()], segment[found.end():]
+    options = []
+    while True:
+        opt = ADB_GLOBAL.match(rest)
+        if not opt:
+            break
+        options.append((opt.group(1) or opt.group(3), opt.group(0)))
+        rest = rest[opt.end():]
+    return head, options, rest
+
+
 def drives_device(segment):
-    """True when this segment drives a device through a tool that has no lease of its own."""
-    if SCRCPY.search(segment) and not SCRCPY_FREE.search(segment):
-        return True
-    if ADB.search(segment) and not ADB_FREE.search(ADB.split(segment, 1)[-1]):
-        return True
-    return False
+    parts = split_adb(segment)
+    return bool(parts) and not ADB_FREE.match(parts[2])
 
 
-def occupies_device(segment):
-    """True when this segment needs the lease held for the whole turn.
-
-    `andrun install` takes a command-scoped lock it drops on exit, so between the
-    install and the screenshot the device is free and another worktree can take
-    it -- the screenshot would then be of someone else's build. Wrapping andrun
-    in `andrun with` upgrades that to a session lease the Stop hook releases.
-    """
-    if drives_device(segment):
-        return True
-    return bool(ANDRUN.search(segment)) and not ANDRUN_FREE.search(ANDRUN.split(segment, 1)[-1])
+def pin_adb(segment, serial):
+    head, options, rest = split_adb(segment)
+    kept = "".join(text for flag, text in options if flag not in ADB_SELECTORS)
+    return f"{head} -s {serial}{kept}{rest}"
 
 
 def touches_device(command):
-    """True when any segment occupies a device, including via andrun or Gradle."""
     for seg in segments(command)[::2]:
-        if drives_device(seg):
+        if drives_device(seg) or LEASE_CMD.search(seg):
             return True
         if GRADLEW.search(seg) and GRADLE_DEVICE_TASK.search(seg):
-            return True
-        if ANDRUN.search(seg) and not ANDRUN_FREE.search(ANDRUN.split(seg, 1)[-1]):
             return True
     return False
 
 
 def policy_denial(command):
     """Returns a reason when the line uses a form that bypasses the lease."""
-    for pattern, reason in DENIALS:
-        if pattern.search(command):
-            return reason
-
     for seg in segments(command)[::2]:
         if GRADLEW.search(seg) and GRADLE_DEVICE_TASK.search(seg):
             task = GRADLE_DEVICE_TASK.search(seg).group(0)
@@ -189,45 +197,19 @@ def policy_denial(command):
                 "the lease, so it installs over whatever another worktree is testing.\n"
                 "  1. build:   python .agents/skills/gradle-run/scripts/gradle_run.py run "
                 "--workflow <id> --scope broad --question '<q>' -- ./gradlew :app:assembleDebug\n"
-                "  2. install: andrun install --no-build --launch --json\n"
-                "Step 2 resolves this worktree's lease and the variant APK itself, and queues "
-                "for a device if every one is busy."
+                "  2. install: python .agents/scripts/device_lease.py install --launch --json\n"
+                "Step 2 leases a device for this worktree, queueing if every one is busy, and "
+                "installs the APK step 1 assembled."
             )
-        if ANDRUN.search(seg):
-            rest = ANDRUN.split(seg, 1)[-1]
-            if re.search(r"(?<!\S)(?:install|run)(?!\S)", rest, re.I) and not re.search(
-                r"(?<!\S)(?:--no-build|-b\s+false)(?!\S)", rest, re.I
-            ):
-                return (
-                    "`andrun install`/`andrun run` force-rebuild by default, which runs Gradle "
-                    "outside the gradle-run wrapper and floods the context with an unbounded log.\n"
-                    "  andrun install --no-build --launch --json\n"
-                    "Build with the wrapper first; andrun then installs the variant APK it finds."
-                )
     return None
 
 
-def wrap_device_segments(command, agent_id=""):
-    """Route every device-driving segment through `andrun with`.
-
-    `andrun with` holds the worktree's lease, queues when every device is busy,
-    targets the leased serial and exports ANDROID_SERIAL. Wrapping per segment
-    rather than per line keeps the shell's own `&&`/`;` structure intact.
-    """
+def pin_command(command, serial):
     parts = segments(command)
-    changed = False
-    prefix = f"andrun with --wait {QUEUE_WAIT_SEC} --ttl {LEASE_TTL_SEC}"
-    if agent_id:
-        prefix += f' --agent-id {agent_id} --task "Harness device session"'
     for index in range(0, len(parts), 2):
-        segment = parts[index]
-        stripped = segment.strip()
-        if not occupies_device(segment) or ALREADY_WRAPPED.match(stripped):
-            continue
-        lead = segment[: len(segment) - len(segment.lstrip())]
-        parts[index] = f"{lead}{prefix} -- {stripped}"
-        changed = True
-    return ("".join(parts), changed)
+        if drives_device(parts[index]):
+            parts[index] = pin_adb(parts[index], serial)
+    return "".join(parts)
 
 
 def register_owner(conversation_id):
@@ -240,14 +222,20 @@ def register_owner(conversation_id):
         pass
 
 
-def on_pretooluse(payload):
-    call = payload.get("toolCall") or {}
-    args = call.get("args") or {}
-    command = args.get("CommandLine") or ""
-    if not isinstance(command, str) or not command.strip():
+def gate(conversation_id, on_lease):
+    """Common lease step: deny when busy, pass when there is nothing to lease."""
+    result = take_lease(conversation_id)
+    if result is None or result.get("status") == "no_device":
         return {"decision": PASS_DECISION}
+    if result.get("status") == "busy":
+        return {"decision": "deny", "reason": busy_reason(result)}
+    register_owner(conversation_id)
+    return on_lease(result["serial"])
 
-    if not touches_device(command):
+
+def on_command(payload, args):
+    command = args.get("CommandLine") or ""
+    if not isinstance(command, str) or not command.strip() or not touches_device(command):
         return {"decision": PASS_DECISION}
 
     reason = policy_denial(command)
@@ -255,11 +243,51 @@ def on_pretooluse(payload):
         return {"decision": "deny", "reason": reason}
 
     conversation_id = payload.get("conversationId") or ""
-    register_owner(conversation_id)
+    if not any(drives_device(seg) for seg in segments(command)[::2]):
+        register_owner(conversation_id)  # device_lease.py takes the lease itself
+        return {"decision": PASS_DECISION}
 
-    rewritten, changed = wrap_device_segments(command, conversation_id[:16])
-    if changed:
+    def pinned(serial):
+        rewritten = pin_command(command, serial)
+        if rewritten == command:
+            return {"decision": PASS_DECISION}
         return {"decision": PASS_DECISION, "overwrite": {"CommandLine": rewritten}}
+
+    return gate(conversation_id, pinned)
+
+
+def on_mobilerun(payload, tool, args):
+    if tool in MOBILERUN_UNPINNED:
+        return {"decision": PASS_DECISION}
+    if tool in MOBILERUN_UNPINNABLE:
+        return {
+            "decision": "deny",
+            "reason": f"mobilerun `{tool}` takes no `device` argument, so it cannot be pinned to "
+                      "this worktree's leased device and could act on another worktree's. Drive "
+                      "the same flow through the app's UI or a deep link instead.",
+        }
+    if args.get("device") is not None and not isinstance(args.get("device"), str):
+        return {"decision": PASS_DECISION}
+
+    def pinned(serial):
+        if args.get("device") == serial:
+            return {"decision": PASS_DECISION}
+        return {"decision": PASS_DECISION, "overwrite": {"device": serial}}
+
+    return gate(payload.get("conversationId") or "", pinned)
+
+
+def on_pretooluse(payload):
+    call = payload.get("toolCall") or {}
+    name = str(call.get("name") or "")
+    args = call.get("args") or {}
+    if not isinstance(args, dict):
+        return {"decision": PASS_DECISION}
+    if name == "run_command":
+        return on_command(payload, args)
+    tool = MOBILERUN_TOOL.search(name)
+    if tool:
+        return on_mobilerun(payload, tool.group(1).lower(), args)
     return {"decision": PASS_DECISION}
 
 
@@ -274,15 +302,16 @@ def on_stop(payload):
     except Exception:
         pass
 
-    remaining = [p for p in OWNERS_DIR.glob("*")] if OWNERS_DIR.is_dir() else []
+    remaining = list(OWNERS_DIR.glob("*")) if OWNERS_DIR.is_dir() else []
     if remaining:
         log(f"{conv}: released; {len(remaining)} conversation(s) still hold the lease")
         return {"decision": "stop"}
 
-    workspaces = payload.get("workspacePaths") or []
-    cwd = workspaces[0] if workspaces else str(STATE_DIR.parent.parent.parent)
-    result, _ = andrun_json(["queue", "release"], cwd=cwd)
-    log(f"{conv}: last owner -- release {(result or {}).get('status', 'failed')}")
+    try:
+        released = leases().release()
+        log(f"{conv}: last owner -- released {', '.join(released) or 'nothing'}")
+    except Exception as exc:
+        log(f"{conv}: release failed: {type(exc).__name__}: {exc}")
     return {"decision": "stop"}
 
 
@@ -294,104 +323,106 @@ SAFE_OUTPUT = {"pretooluse": {"decision": PASS_DECISION}, "stop": {"decision": "
 # self-test
 # ---------------------------------------------------------------------------
 
-WRAPPED = [
-    "scrcpy-cli screenshot .agents/state/verify/01.png",
-    "scrcpy-cli ui-dump layout.xml",
-    "scrcpy-cli tap 540 960",
-    "adb logcat -d -t 400",
-    "adb shell am force-stop com.example.app",
+PINNED = [
+    ("adb logcat -d -t 400", "adb -s S1 logcat -d -t 400"),
+    ("adb shell am force-stop com.example.app", "adb -s S1 shell am force-stop com.example.app"),
+    ("adb -s other shell cmd uimode night yes", "adb -s S1 shell cmd uimode night yes"),
+    ("adb -d -P 5038 install -r app.apk", "adb -s S1 -P 5038 install -r app.apk"),
+    ("adb.exe -e shell input keyevent 4", "adb.exe -s S1 shell input keyevent 4"),
+    ("cd app && adb logcat -c", "cd app && adb -s S1 logcat -c"),
+    ("adb logcat -c && adb shell ls", "adb -s S1 logcat -c && adb -s S1 shell ls"),
+    ('"C:/sdk/platform-tools/adb.exe" shell ls', '"C:/sdk/platform-tools/adb.exe" -s S1 shell ls'),
+    ('& "C:/Program Files/sdk/adb.exe" logcat -d', '& "C:/Program Files/sdk/adb.exe" -s S1 logcat -d'),
+    ("ANDROID_SERIAL=x adb shell ls", "ANDROID_SERIAL=x adb -s S1 shell ls"),
 ]
-
-PASSED_THROUGH = [
-    "andrun install --no-build --launch --json",
-    "andrun install app.apk --no-build --json",
-]  # wrapped too: their own lock is command-scoped
 
 NOT_TOUCHING = [
     "./gradlew :app:assembleDebug",
     "python .agents/skills/gradle-run/scripts/gradle_run.py run --workflow 7 --scope broad -- ./gradlew :app:testDebugUnitTest",
     "git status --porcelain",
-    "andrun devices --json",
-    "andrun queue list --json",
-    "andrun serial",
-    "scrcpy-cli device-list",
     "adb devices",
+    "adb devices -l",
+    "adb -s foo devices",
     "adb connect 100.97.204.22:5555",
     "grep -rn installDebug docs/",
+    "grep -rn adb docs/",
+    "echo adb shell ls",
+    "python .agents/scripts/device_lease.py list",
+    "python .agents/scripts/device_lease.py serial --json",
 ]
 
 DENIED = [
-    "adb install -r app-debug.apk",
-    "adb -s foo install app/build/outputs/apk/debug/app-debug.apk",
     "./gradlew :app:installDebug",
     "gradlew.bat :app:connectedDebugAndroidTest",
-    "andrun install",
-    "andrun run --launch",
-    "scrcpy-cli daemon start",
+    "./gradlew uninstallAll",
 ]
 
 
 def self_test():
+    global take_lease, register_owner
     failures = []
 
     def check(name, ok):
         if not ok:
             failures.append(name)
 
-    for cmd in WRAPPED + PASSED_THROUGH:
-        check(f"touches: {cmd}", touches_device(cmd))
-    for cmd in NOT_TOUCHING:
-        check(f"free: {cmd}", not touches_device(cmd))
-    for cmd in DENIED:
-        check(f"denied: {cmd}", policy_denial(cmd) is not None)
-    for cmd in WRAPPED + PASSED_THROUGH:
-        check(f"permitted: {cmd}", policy_denial(cmd) is None)
+    real = take_lease, register_owner
+    lease_result = {"status": "ok", "serial": "S1"}
+    owners = []
+    take_lease = lambda conversation_id: dict(lease_result)
+    register_owner = owners.append
+    try:
+        for cmd, want in PINNED:
+            check(f"touches: {cmd}", touches_device(cmd))
+            check(f"permitted: {cmd}", policy_denial(cmd) is None)
+            check(f"pins: {cmd} -> {pin_command(cmd, 'S1')}", pin_command(cmd, "S1") == want)
+        for cmd in NOT_TOUCHING:
+            check(f"free: {cmd}", not touches_device(cmd))
+        for cmd in DENIED:
+            check(f"denied: {cmd}", policy_denial(cmd) is not None)
 
-    out, changed = wrap_device_segments("scrcpy-cli screenshot a.png")
-    check(
-        "wraps scrcpy-cli",
-        changed
-        and out == f"andrun with --wait {QUEUE_WAIT_SEC} --ttl {LEASE_TTL_SEC} -- scrcpy-cli screenshot a.png",
-    )
-    out, changed = wrap_device_segments("adb logcat -d")
-    check("wraps adb", changed and out.endswith("-- adb logcat -d"))
-    out, changed = wrap_device_segments("andrun install --no-build --json")
-    check("wraps andrun install into a session lease", changed and out.endswith("-- andrun install --no-build --json"))
-    out, changed = wrap_device_segments("adb devices")
-    check("leaves a device listing alone", not changed)
-    out, changed = wrap_device_segments("andrun queue list --json")
-    check("leaves a queue listing alone", not changed)
-    out, changed = wrap_device_segments("cd app && scrcpy-cli tap 1 2")
-    check("keeps shell structure", changed and out.startswith("cd app && andrun with"))
-    out, changed = wrap_device_segments("scrcpy-cli ui-dump a.xml && scrcpy-cli screenshot b.png")
-    check("wraps every segment", out.count("andrun with") == 2)
-    out, changed = wrap_device_segments(f"andrun with --wait {QUEUE_WAIT_SEC} -- scrcpy-cli tap 1 2")
-    check("does not double-wrap", not changed)
-    out, changed = wrap_device_segments("scrcpy-cli tap 1 2", "conv-123")
-    check("records the agent id", "--agent-id conv-123" in out)
+        def pre(name, args, conv="c1"):
+            return on_pretooluse({"toolCall": {"name": name, "args": args}, "conversationId": conv})
 
-    check("empty payload passes", on_pretooluse({}).get("decision") == PASS_DECISION)
-    check(
-        "non-device command passes",
-        on_pretooluse({"toolCall": {"name": "run_command", "args": {"CommandLine": "ls -la"}}}).get("decision")
-        == PASS_DECISION,
-    )
-    verdict = on_pretooluse(
-        {
-            "toolCall": {"name": "run_command", "args": {"CommandLine": "scrcpy-cli screenshot x.png"}},
-            "conversationId": "abc",
-        }
-    )
-    check("rewrites through the handler", "andrun with" in verdict.get("overwrite", {}).get("CommandLine", ""))
-    check(
-        "gradle install denied",
-        on_pretooluse(
-            {"toolCall": {"name": "run_command", "args": {"CommandLine": "./gradlew :app:installDebug"}}}
-        ).get("decision")
-        == "deny",
-    )
+        verdict = pre("run_command", {"CommandLine": "adb shell ls"})
+        check("rewrites through the handler",
+              verdict.get("overwrite", {}).get("CommandLine") == "adb -s S1 shell ls")
+        check("registers the owner", owners == ["c1"])
+        check("non-device command passes", pre("run_command", {"CommandLine": "ls -la"}) == {"decision": PASS_DECISION})
+        check("gradle install denied", pre("run_command", {"CommandLine": "./gradlew :app:installDebug"})["decision"] == "deny")
+        owners.clear()
+        check("lease script passes untouched",
+              pre("run_command", {"CommandLine": "python .agents/scripts/device_lease.py install --launch --json"})
+              == {"decision": PASS_DECISION})
+        check("lease script registers the owner", owners == ["c1"])
 
-    total = len(WRAPPED + PASSED_THROUGH) * 2 + len(NOT_TOUCHING) + len(DENIED) + 14
+        verdict = pre("mcp__mobilerun__tap_text", {"text": "Login", "device": "other"})
+        check("mobilerun device overwritten", verdict.get("overwrite") == {"device": "S1"})
+        verdict = pre("mcp__mobilerun__screenshot_path", {})
+        check("mobilerun device injected", verdict.get("overwrite") == {"device": "S1"})
+        check("mobilerun already pinned passes",
+              pre("mcp__mobilerun__ping_device", {"device": "S1"}) == {"decision": PASS_DECISION})
+        check("mobilerun ledger passes", pre("mcp__mobilerun__set_plan", {"steps": []}) == {"decision": PASS_DECISION})
+        check("mobilerun system_intent denied",
+              pre("mcp__mobilerun__system_intent", {"intent": "dial"})["decision"] == "deny")
+        check("other MCP tools pass", pre("mcp__figma__get_node", {"id": "1"}) == {"decision": PASS_DECISION})
+
+        lease_result = {"status": "busy", "holders": [
+            {"serial": "S1", "owner": "/work/feat-a", "task": "agent x", "expires_in": 600}]}
+        verdict = pre("mcp__mobilerun__tap", {"x": 1, "y": 2})
+        check("busy denies mobilerun", verdict["decision"] == "deny" and "/work/feat-a" in verdict["reason"])
+        verdict = pre("run_command", {"CommandLine": "adb shell ls"})
+        check("busy denies adb with the queue command",
+              verdict["decision"] == "deny" and "acquire --wait" in verdict["reason"])
+
+        lease_result = {"status": "no_device"}
+        check("no device passes adb", pre("run_command", {"CommandLine": "adb shell ls"}) == {"decision": PASS_DECISION})
+        check("no device passes mobilerun", pre("mcp__mobilerun__tap", {}) == {"decision": PASS_DECISION})
+        check("empty payload passes", on_pretooluse({}) == {"decision": PASS_DECISION})
+    finally:
+        take_lease, register_owner = real
+
+    total = len(PINNED) * 3 + len(NOT_TOUCHING) + len(DENIED) + 17
     for name in failures:
         print(f"FAIL {name}")
     print(f"{total - len(failures)} passed, {len(failures)} failed")
@@ -404,11 +435,12 @@ def show_status():
     print(f"owners: {len(owners)}")
     for o in owners:
         print(f"  {o}")
-    result, _ = andrun_json(["serial"], cwd=str(STATE_DIR.parent.parent.parent), timeout=15)
-    if result and result.get("status") == "ok":
-        print(f"lease: {result['lease_id']} on {result.get('device_name') or result['serial']}")
-    else:
-        print("lease: none held by this worktree")
+    try:
+        serial = leases().held()
+    except Exception as exc:
+        serial = None
+        print(f"lease store: {type(exc).__name__}: {exc}")
+    print(f"lease: {serial}" if serial else "lease: none held by this worktree")
     return 0
 
 
