@@ -29,7 +29,7 @@ describing the diff you would apply, stop and delegate it instead.
 | `explore` | "Where is X?", "which files touch Y?", cross-module pattern discovery. Fire 2–3 in parallel for broad questions | cheap |
 | `oracle` | Architecture trade-offs, review of finished work, debugging after 2+ failed attempts | expensive |
 | `executor` | Every code change — one line or one feature. Holds the shell, so it proves what it wrote | medium |
-| `verifier` | The aggregate build once a wave of `executor`s has converged, plus install-and-drive on a real device for UI-facing work, plus stage 4 of the Figma pipeline when you hand it a spec. Read-only on the repo, and the only agent allowed to hold Gradle | medium |
+| `verifier` | Multi-mode verification: minimal (lint only), compact (gradle build), or full (mobilerun app launch & drive). Read-only on the repo, and the only agent allowed to hold Gradle | medium |
 | `figma-analyzer` | Stage 1 of Figma work — read-only inspection, writes `docs/<feature>/figma-spec.md` and the reference images | expensive |
 | `figma-asset-extractor` | Stage 2 — SVG to `res/drawable/ic_*.xml`, missing colours and dimensions into the shared `res/values`, writes `figma-assets.json` | medium |
 | `figma-xml-developer` | Stage 3 — XML layouts from the spec, ShapeView attributes, Glide imagery, Epoxy lists, the Action/SideEffect contract | expensive |
@@ -101,6 +101,22 @@ screen that crashes on first composition.
 For UI work, put the scenario in CONTEXT: the screen to reach, the steps to get there, and
 what should be visibly true. Without one `verifier` runs a launch smoke test only, which
 catches the crash but not the wrong layout.
+
+### Verification Modes & Subagent Planning (following BA Space)
+
+`verifier` supports three modes, configurable globally via `aha verifier <mode>` or chosen per-dispatch in TASK/CONTEXT:
+
+- **`minimal`**: When you only need fast static lint and non-negotiables checks over the diff. Specify `mode: minimal` in the prompt.
+- **`compact`**: When you need cross-module Gradle compilation and unit tests without launching a device. Specify `mode: compact` in the prompt.
+- **`full` (default)**: For UI-facing changes or full verification. Assembles, tests, and drives the app on device with `mobilerun`.
+
+When dispatching `verifier` in `full` mode for UI changes, follow the **BA Space planning pattern**:
+Put the verification checklist/scenario in CONTEXT:
+1. Target entry (e.g. package, exported activity, or deep link).
+2. Expected screens and transition path.
+3. Explicit verification items: what to tap/input, and what on-screen text/state must be visibly verified (`record_finding`).
+
+This allows the `verifier` subagent to register a formal execution plan via `set_plan`, mark each step's status with `mark_step`, assert states using `mobilerun` perception tools, and report conclusive evidence.
 
 ### The Figma pipeline
 

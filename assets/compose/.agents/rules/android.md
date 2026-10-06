@@ -19,5 +19,5 @@ trigger: always_on
 ## 3. Device & Build Ownership
 - **Gradle never installs**: no `installDebug`, `connectedAndroidTest`, or any `install*`/`uninstall*`/`connected*` task. They pick a device themselves and overwrite whatever another git worktree is verifying on it. Assemble, then `andrun install --no-build --launch --json`.
 - **Never `adb install`**: same reason. `andrun` resolves the device this worktree leased.
-- **Never pass a device or serial**: the `device-gate` hook leases one on your first device command and injects `-s <serial>` into `scrcpy-cli` and `adb` for you. If it denies because every device is leased elsewhere, queue with `andrun queue ensure --wait-timeout 600 --json` — do not work around it.
+- **Never pass a device or serial**: the `device-gate` hook leases one on your first device command and injects `-s <serial>` into `adb` for you (and `mobilerun` targets `MOBILERUN_DEVICE`). If it denies because every device is leased elsewhere, queue with `andrun queue ensure --wait-timeout 600 --json` — do not work around it.
 

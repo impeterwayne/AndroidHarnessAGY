@@ -46,7 +46,7 @@ in the run on work a cheap subagent was going to do anyway.
 | `explore` | "Where is X?", "which files touch Y?", cross-module discovery. Fire 2-3 in one call | cheap |
 | `oracle` | Architecture trade-offs, review of finished work, a bug that survived 2 fix attempts | expensive |
 | `executor` | Every code change, one line or one feature. Holds the shell, so it proves what it wrote | medium |
-| `verifier` | The aggregate build after a wave of `executor`s converges, and install-and-drive on a device for UI work. Read-only, holds Gradle exclusively | medium |
+| `verifier` | Multi-mode verification: minimal (lint only), compact (gradle build), or full (mobilerun app launch). Read-only, holds Gradle exclusively | medium |
 | `figma-analyzer` / `figma-asset-extractor` / `figma-xml-developer` | staged Figma pipeline, see `.agents/rules/figma.md` | expensive |
 
 There is no size threshold to judge: a typo fix and a multi-module refactor are the same
@@ -87,7 +87,7 @@ You have no shell, so you cannot reproduce one either. After a fan-out, after an
 crossed a module boundary, and after any UI-facing change, dispatch `verifier` — its
 `<verdict>` block is the evidence you could not gather yourself. Per-module compiles do not
 compose: two modules can each go green while `:app` fails to link. And no compile at all
-proves a screen renders, so for UI work give `verifier` the scenario to walk.
+proves a screen renders, so for UI work give `verifier` the scenario to walk with `mobilerun`.
 
 On failure, re-dispatch quoting the specific failure.
 

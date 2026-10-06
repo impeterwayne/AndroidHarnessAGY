@@ -497,5 +497,131 @@ class TestClaudePlatform(unittest.TestCase):
         self.assertFalse(list(self.claude.rglob("__pycache__")))
 
 
+class TestVerifierModesAndMobilerun(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.target = Path(self.temp_dir.name)
+        subprocess.run(["git", "init"], cwd=self.target, capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=self.target, check=True)
+        subprocess.run(["git", "config", "user.email", "tester@example.com"], cwd=self.target, check=True)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _manifest(self, platform="antigravity"):
+        p = self.target / (".claude" if platform == "claude" else ".agents") / ".aha.json"
+        return json.loads(p.read_text(encoding="utf-8"))
+
+    def test_default_verifier_mode_is_compact(self):
+        res = run_aha("init", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        manifest = self._manifest()
+        self.assertEqual(manifest.get("verifier_mode"), "compact")
+        verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
+        self.assertIn("### Active Mode: compact", verifier_md)
+
+    def test_init_with_verifier_mode_flag(self):
+        for mode in ("minimal", "compact", "full"):
+            res = run_aha("init", "--force", "--verifier-mode", mode, "--no-git-exclude", cwd=self.target)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            manifest = self._manifest()
+            self.assertEqual(manifest.get("verifier_mode"), mode)
+            verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
+            self.assertIn(f"### Active Mode: {mode}", verifier_md)
+
+        # Also test --verifier alias flag for init full
+        res_alias = run_aha("init", "--force", "--verifier", "full", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res_alias.returncode, 0, res_alias.stderr)
+        self.assertEqual(self._manifest().get("verifier_mode"), "full")
+        verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
+        self.assertIn("### Active Mode: full", verifier_md)
+
+    def test_aha_verifier_command_get_and_set(self):
+        res_init = run_aha("init", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res_init.returncode, 0, res_init.stderr)
+
+        # Query active mode (default is compact)
+        res_get = run_aha("verifier", cwd=self.target)
+        self.assertEqual(res_get.returncode, 0, res_get.stderr)
+        self.assertIn("verifier mode: compact", res_get.stdout)
+
+        # Switch to minimal
+        res_set = run_aha("verifier", "minimal", cwd=self.target)
+        self.assertEqual(res_set.returncode, 0, res_set.stderr)
+        self.assertIn("verifier mode set to: minimal", res_set.stdout)
+        self.assertEqual(self._manifest().get("verifier_mode"), "minimal")
+        verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
+        self.assertIn("### Active Mode: minimal", verifier_md)
+
+        # Switch to full
+        res_set2 = run_aha("verifier", "full", cwd=self.target)
+        self.assertEqual(res_set2.returncode, 0, res_set2.stderr)
+        self.assertIn("verifier mode set to: full", res_set2.stdout)
+        self.assertEqual(self._manifest().get("verifier_mode"), "full")
+        verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
+        self.assertIn("### Active Mode: full", verifier_md)
+
+        # Invalid mode is rejected
+        res_invalid = run_aha("verifier", "bogus", cwd=self.target)
+        self.assertNotEqual(res_invalid.returncode, 0)
+
+    def test_aha_update_preserves_verifier_mode(self):
+        res_init = run_aha("init", "--verifier", "full", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res_init.returncode, 0, res_init.stderr)
+        self.assertEqual(self._manifest().get("verifier_mode"), "full")
+
+        res_update = run_aha("update", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res_update.returncode, 0, res_update.stderr)
+        self.assertEqual(self._manifest().get("verifier_mode"), "full")
+        verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
+        self.assertIn("### Active Mode: full", verifier_md)
+
+    def test_mobilerun_installed_and_scrcpy_absent(self):
+        res = run_aha("init", "--profile", "android", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        skills = {p.name for p in (self.target / ".agents" / "skills").iterdir()}
+        self.assertIn("mobilerun", skills)
+        self.assertNotIn("scrcpy", skills)
+        self.assertTrue((self.target / ".agents" / "skills" / "mobilerun" / "SKILL.md").is_file())
+        self.assertTrue((self.target / ".agents" / "skills" / "mobilerun" / "references" / "tools_reference.md").is_file())
+
+        mcp_cfg = json.loads((self.target / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
+        self.assertIn("mobilerun", mcp_cfg.get("mcpServers", {}))
+        self.assertNotIn("scrcpy", mcp_cfg.get("mcpServers", {}))
+        self.assertEqual(mcp_cfg["mcpServers"]["mobilerun"]["command"], "npx")
+
+    def test_device_serial_configuration(self):
+        res = run_aha("init", "--device", "emulator-5554", "--no-git-exclude", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        manifest = self._manifest()
+        self.assertEqual(manifest.get("device_serial"), "emulator-5554")
+        mcp_cfg = json.loads((self.target / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
+        self.assertEqual(mcp_cfg["mcpServers"]["mobilerun"]["env"]["MOBILERUN_DEVICE"], "emulator-5554")
+
+        # Update verifier with new device serial
+        res_v = run_aha("verifier", "full", "--device", "device-9999", cwd=self.target)
+        self.assertEqual(res_v.returncode, 0, res_v.stderr)
+        manifest = self._manifest()
+        self.assertEqual(manifest.get("device_serial"), "device-9999")
+        mcp_cfg2 = json.loads((self.target / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
+        self.assertEqual(mcp_cfg2["mcpServers"]["mobilerun"]["env"]["MOBILERUN_DEVICE"], "device-9999")
+
+    def test_claude_platform_verifier_mode_and_mobilerun(self):
+        res = run_aha("init", "--platform", "claude", "--verifier-mode", "minimal", "--device", "pixel-7", cwd=self.target)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        manifest = self._manifest(platform="claude")
+        self.assertEqual(manifest.get("verifier_mode"), "minimal")
+        self.assertEqual(manifest.get("device_serial"), "pixel-7")
+
+        verifier_md = (self.target / ".claude" / "agents" / "verifier.md").read_text(encoding="utf-8")
+        self.assertIn("### Active Mode: minimal", verifier_md)
+        # verifier should NOT have tools: restricted so it can invoke MCP
+        self.assertNotIn("tools:", verifier_md.split("---")[1])
+
+        mcp_cfg = json.loads((self.target / ".mcp.json").read_text(encoding="utf-8"))
+        self.assertIn("mobilerun", mcp_cfg.get("mcpServers", {}))
+        self.assertEqual(mcp_cfg["mcpServers"]["mobilerun"]["env"]["MOBILERUN_DEVICE"], "pixel-7")
+
+
 if __name__ == "__main__":
     unittest.main()

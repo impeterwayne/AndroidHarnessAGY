@@ -96,7 +96,7 @@ Nothing is done without a command that would have caught the mistake, and its ex
 
 - Compile the affected module: `./gradlew :<module>:compileDebugKotlin`
 - Run the tests covering what you touched: `./gradlew :<module>:testDebugUnitTest`
-- For a UI change, exercise the real surface — the [`scrcpy`](../scrcpy/SKILL.md) skill drives
+- For a UI change, exercise the real surface — the [`mobilerun`](../mobilerun/SKILL.md) skill drives
   the device and captures screenshots. A compile is not proof that a screen renders.
 - Record each one: `loop.py checkpoint --goal-id gN --status complete --evidence "..."
   --command "..." --exit-code 0`

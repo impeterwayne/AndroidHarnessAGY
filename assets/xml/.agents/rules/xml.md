@@ -100,6 +100,6 @@ Details: skill `image-loading-glide`.
   `andrun install --no-build --launch --json`.
 - **Never `adb install`**: same reason. `andrun` resolves the device this worktree leased.
 - **Never pass a device or serial**: the `device-gate` hook leases one on your first
-  device command and injects `-s <serial>` into `scrcpy-cli` and `adb` for you. If it
-  denies because every device is leased elsewhere, queue with
+  device command and injects `-s <serial>` into `adb` for you (and `mobilerun` targets
+  `MOBILERUN_DEVICE`). If it denies because every device is leased elsewhere, queue with
   `andrun queue ensure --wait-timeout 600 --json` — do not work around it.

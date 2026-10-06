@@ -100,6 +100,23 @@ PLATFORM_LAYOUT = {
     "claude": (".claude", "CLAUDE.md"),
 }
 
+VERIFIER_MODES = ("minimal", "compact", "full")
+DEFAULT_VERIFIER_MODE = "compact"
+VERIFIER_MODE = DEFAULT_VERIFIER_MODE
+DEVICE_SERIAL = None
+
+VERIFIER_MODE_START = "<!-- aha:verifier-mode:start -->"
+VERIFIER_MODE_END = "<!-- aha:verifier-mode:end -->"
+
+
+def update_verifier_mode_in_text(text: str, mode: str) -> str:
+    start = text.find(VERIFIER_MODE_START)
+    end = text.find(VERIFIER_MODE_END)
+    if start != -1 and end != -1 and end > start:
+        replacement = f"{VERIFIER_MODE_START}\n### Active Mode: {mode}\n{VERIFIER_MODE_END}"
+        return text[:start] + replacement + text[end + len(VERIFIER_MODE_END):]
+    return text
+
 # Claude Code only. Files that exist for Claude and not for Antigravity, keyed by
 # their path under `.claude/`.
 CLAUDE_OVERLAY = ASSETS_ROOT / "claude"
@@ -167,7 +184,7 @@ PROFILES: dict[str, dict[str, dict[str, list[str]]]] = {
             "skills": [
                 "lean", "lean-audit", "lean-debt", "lean-gain", "lean-help",
                 "lean-review", "code-review", "document_project", "loop", "ultrawork",
-                "gradle-run", "scrcpy",
+                "gradle-run", "mobilerun",
             ],
             "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
             "rules": ["lean"],
@@ -178,7 +195,7 @@ PROFILES: dict[str, dict[str, dict[str, list[str]]]] = {
                 "image-loading-landscapist", "styles", "lean", "lean-review",
                 "android-code-indexer", "android-resource-policy",
                 "compose-component-design", "compose-state-and-effects",
-                "orbit-mvi-feature-builder", "gradle-run", "testing-setup", "scrcpy",
+                "orbit-mvi-feature-builder", "gradle-run", "testing-setup", "mobilerun",
             ],
             "agents": [
                 "explore", "figma-analyzer", "figma-asset-extractor",
@@ -200,7 +217,7 @@ PROFILES: dict[str, dict[str, dict[str, list[str]]]] = {
                 "lean-help", "lean-review", "loop",
                 "migrate-xml-views-to-jetpack-compose", "navigation-3",
                 "orbit-mvi-feature-builder", "play-policy-insights", "r8-analyzer",
-                "scrcpy", "styles", "testing-setup", "translate-strings", "ultrawork",
+                "mobilerun", "styles", "testing-setup", "translate-strings", "ultrawork",
                 "xxpermissions-ktx",
             ],
             "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
@@ -212,7 +229,7 @@ PROFILES: dict[str, dict[str, dict[str, list[str]]]] = {
             "skills": [
                 "lean", "lean-audit", "lean-debt", "lean-gain", "lean-help",
                 "lean-review", "code-review", "document_project", "loop", "ultrawork",
-                "gradle-run", "scrcpy",
+                "gradle-run", "mobilerun",
             ],
             "agents": ["explore", "oracle", "orchestrator", "executor", "verifier"],
             "rules": ["lean"],
@@ -222,7 +239,7 @@ PROFILES: dict[str, dict[str, dict[str, list[str]]]] = {
                 "figma-asset-extractor", "figma-design-analyzer", "figma2xml",
                 "shape-view", "image-loading-glide", "android-xml-views",
                 "xml-resource-policy", "lean", "lean-review", "android-code-indexer",
-                "gradle-run", "testing-setup", "scrcpy",
+                "gradle-run", "testing-setup", "mobilerun",
             ],
             "agents": [
                 "explore", "figma-analyzer", "figma-asset-extractor",
@@ -238,7 +255,7 @@ PROFILES: dict[str, dict[str, dict[str, list[str]]]] = {
                 "kotlin-api-design", "kotlin-concurrency-and-flow",
                 "kotlin-control-flow", "lean", "lean-audit", "lean-debt", "lean-gain",
                 "lean-help", "lean-review", "loop", "play-policy-insights",
-                "r8-analyzer", "scrcpy", "shape-view", "testing-setup",
+                "r8-analyzer", "mobilerun", "shape-view", "testing-setup",
                 "translate-strings", "ultrawork", "xml-resource-policy",
                 "xxpermissions-ktx",
             ],
@@ -383,9 +400,9 @@ def claude_agent(text: str, name: str) -> str:
             continue
         kept.append(line)
     kept.append(f"model: {CLAUDE_AGENT_MODELS.get(name, SUBAGENT_MODEL)}")
-    # Figma agents drive the figma MCP server, whose tools an explicit list would
-    # shut out -- they inherit everything instead.
-    if tools and not name.startswith("figma-"):
+    # Agents driving MCP servers (figma-*, verifier) inherit all tools in Claude Code
+    # rather than having an explicit list shut MCP tools out.
+    if tools and not (name.startswith("figma-") or name == "verifier"):
         mapped = list(dict.fromkeys(CLAUDE_TOOLS.get(t, t) for t in tools))
         if "Grep" in mapped and "Glob" not in mapped:
             mapped.insert(mapped.index("Grep") + 1, "Glob")
@@ -397,6 +414,19 @@ def claude_agent(text: str, name: str) -> str:
 def render(rel: str) -> bytes:
     src = source_path(rel)
     data = src.read_bytes()
+    if rel == "agents/verifier.md":
+        try:
+            text = data.decode("utf-8")
+            text = update_verifier_mode_in_text(text, VERIFIER_MODE)
+            data = text.encode("utf-8")
+        except UnicodeDecodeError:
+            pass
+    if rel == "mcp_config.json" and DEVICE_SERIAL:
+        try:
+            text = data.decode("utf-8").replace("<serial>", DEVICE_SERIAL)
+            data = text.encode("utf-8")
+        except UnicodeDecodeError:
+            pass
     if PLATFORM != "claude" or src.suffix not in TEXT_SUFFIXES:
         return data
     try:
@@ -693,7 +723,10 @@ def strip_exclude_block(existing: str) -> str:
 
 def merged_text(rel: str, src: Path, dst: Path) -> str:
     if rel == "mcp_config.json":
-        return merge_json(src, dst, "mcpServers")
+        text = merge_json(src, dst, "mcpServers")
+        if DEVICE_SERIAL:
+            text = text.replace("<serial>", DEVICE_SERIAL)
+        return text
     if rel == "hooks.json":
         return merge_json(src, dst, None)
     return src.read_text(encoding="utf-8")
@@ -808,7 +841,14 @@ def wire_claude_settings(target_agents: Path, include_hooks: bool, dry_run: bool
 
 def merge_claude_mcp(target: Path, previously_added: list[str], dry_run: bool) -> tuple[str, list[str]]:
     """Add harness MCP servers to .mcp.json. The project's own entries win."""
-    incoming = (load_json(SOURCE_AGENTS / "mcp_config.json") or {}).get("mcpServers", {})
+    mcp_src = SOURCE_AGENTS / "mcp_config.json"
+    incoming_raw = mcp_src.read_text(encoding="utf-8") if mcp_src.is_file() else "{}"
+    if DEVICE_SERIAL:
+        incoming_raw = incoming_raw.replace("<serial>", DEVICE_SERIAL)
+    try:
+        incoming = (json.loads(incoming_raw) or {}).get("mcpServers", {})
+    except ValueError:
+        incoming = {}
     path = target / CLAUDE_MCP
     current = load_json(path)
     if current is None:
@@ -874,10 +914,13 @@ def write_manifest(target_agents: Path, files: dict[str, str], args,
         "platform": PLATFORM,
         "track": args.track,
         "profile": args.profile,
+        "verifier_mode": VERIFIER_MODE,
         "installed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         **(extra or {}),
         "files": files,
     }
+    if DEVICE_SERIAL:
+        manifest["device_serial"] = DEVICE_SERIAL
     (target_agents / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
@@ -937,6 +980,19 @@ def do_install(args, updating: bool) -> int:
 
     state = classify(target_agents, manifest)
     protected = set(state["modified"]) if (updating and not args.overwrite_local) else set()
+
+    global VERIFIER_MODE, DEVICE_SERIAL
+    if hasattr(args, "device_serial") and args.device_serial:
+        DEVICE_SERIAL = args.device_serial
+    elif updating and manifest and "device_serial" in manifest:
+        DEVICE_SERIAL = manifest["device_serial"]
+
+    if hasattr(args, "verifier_mode") and args.verifier_mode:
+        VERIFIER_MODE = args.verifier_mode
+    elif updating and manifest and "verifier_mode" in manifest:
+        VERIFIER_MODE = manifest["verifier_mode"]
+    else:
+        VERIFIER_MODE = DEFAULT_VERIFIER_MODE
 
     selection = resolve_selection(args)
     files = plan_files(selection, include_hooks=not args.no_hooks,
@@ -1045,6 +1101,7 @@ def do_install(args, updating: bool) -> int:
     print(f"  platform     {PLATFORM}")
     print(f"  track        {args.track}")
     print(f"  profile      {args.profile}  (source {source_commit()})")
+    print(f"  verifier     {VERIFIER_MODE}")
     print(f"  {verb:<12} {len(written)} file(s)"
           + (f", {unchanged_n} already current" if unchanged_n else ""))
     if root_doc == "created":
@@ -1099,7 +1156,9 @@ def do_status(args) -> int:
     print(f"  installed    {manifest.get('installed_at', '?')}"
           f"  platform {manifest.get('platform', DEFAULT_PLATFORM)}"
           f"  track {manifest.get('track', DEFAULT_TRACK)}"
-          f"  profile {manifest.get('profile', '?')}  commit {manifest.get('commit', '?')}")
+          f"  profile {manifest.get('profile', '?')}"
+          f"  verifier {manifest.get('verifier_mode', DEFAULT_VERIFIER_MODE)}"
+          f"  commit {manifest.get('commit', '?')}")
     print(f"  source       {manifest.get('source', '?')}")
 
     now = source_commit()
@@ -1257,6 +1316,62 @@ def do_remove(args) -> int:
     return 0
 
 
+def do_verifier(args) -> int:
+    target = Path(args.target).resolve()
+    target_agents = target / HARNESS_DIR
+    manifest = read_manifest(target_agents)
+    if not manifest and not target_agents.is_dir():
+        die(f"no harness found at {target} -- run 'aha init' first")
+
+    if args.mode is None:
+        vmode = (manifest or {}).get("verifier_mode", DEFAULT_VERIFIER_MODE)
+        print(f"verifier mode: {vmode} (target: {target})")
+        return 0
+
+    new_mode = args.mode
+    verifier_rel = "agents/verifier.md"
+    verifier_file = target_agents / verifier_rel
+
+    if verifier_file.is_file():
+        content = verifier_file.read_text(encoding="utf-8")
+        updated = update_verifier_mode_in_text(content, new_mode)
+        verifier_file.write_text(updated, encoding="utf-8")
+
+    if manifest:
+        manifest["verifier_mode"] = new_mode
+        if verifier_file.is_file():
+            manifest.setdefault("files", {})[verifier_rel] = sha256(verifier_file)
+        (target_agents / MANIFEST_NAME).write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    if hasattr(args, "device_serial") and args.device_serial:
+        mcp_file = target_agents / "mcp_config.json"
+        if mcp_file.is_file():
+            try:
+                mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
+                if "mcpServers" in mcp_data and "mobilerun" in mcp_data["mcpServers"]:
+                    mcp_data["mcpServers"]["mobilerun"].setdefault("env", {})["MOBILERUN_DEVICE"] = args.device_serial
+                mcp_file.write_text(json.dumps(mcp_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            except Exception:
+                pass
+        claude_mcp = target / CLAUDE_MCP
+        if claude_mcp.is_file():
+            try:
+                cmcp_data = json.loads(claude_mcp.read_text(encoding="utf-8"))
+                if "mcpServers" in cmcp_data and "mobilerun" in cmcp_data["mcpServers"]:
+                    cmcp_data["mcpServers"]["mobilerun"].setdefault("env", {})["MOBILERUN_DEVICE"] = args.device_serial
+                claude_mcp.write_text(json.dumps(cmcp_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            except Exception:
+                pass
+        if manifest:
+            manifest["device_serial"] = args.device_serial
+            (target_agents / MANIFEST_NAME).write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    print(f"verifier mode set to: {new_mode} (target: {target})")
+    return 0
+
+
 def do_list(args) -> int:
     print(f"aha source {SOURCE_AGENTS}  (commit {source_commit()})\n")
     for kind in ("rules", "agents", "skills"):
@@ -1290,6 +1405,11 @@ def do_list(args) -> int:
         counts = ", ".join(f"{len(v)} {k}" for k, v in spec.items())
         print(f"  {name:<10} {counts}")
     print()
+    print("verifier modes")
+    print("  minimal    lint checks & diff non-negotiables only (fastest, no assemble)")
+    print("  compact    Gradle assemble & unit tests (default, no device)")
+    print("  full       Gradle assemble, unit tests, and mobilerun app launch")
+    print()
     print("tracks")
     for name in TRACKS:
         agents_dir = ASSETS_ROOT / name / ".agents"
@@ -1316,6 +1436,11 @@ def add_selection_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--subagent-model", default=None,
                    help=f"Claude only: model for subagents (default: {DEFAULT_SUBAGENT_MODEL}; "
                         + ", ".join(CLAUDE_AGENT_MODELS) + " stay on opus)")
+    p.add_argument("--verifier-mode", "--verifier", dest="verifier_mode", choices=VERIFIER_MODES, default=None,
+                   help=f"verification mode: minimal (lint only), compact (gradle build), "
+                        f"full (app launch with mobilerun) (default: {DEFAULT_VERIFIER_MODE})")
+    p.add_argument("--device", "--device-serial", dest="device_serial", default=None,
+                   help="target device serial for mobilerun (configures MOBILERUN_DEVICE)")
     p.add_argument("--track", default=None, choices=TRACKS,
                    help=f"which payload to install: {' or '.join(TRACKS)} "
                         f"(default: {DEFAULT_TRACK})")
@@ -1384,6 +1509,28 @@ def main(argv: list[str]) -> int:
                            help="print what would be removed")
         add_platform_flag(p_cmd)
 
+    p_ver = sub.add_parser(
+        "verifier",
+        help="get or set the verification mode (minimal, compact, full)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Get or set the active verification mode for a project.\n\n"
+                    "Modes:\n"
+                    "  minimal  - lint checks & non-negotiables only (fastest)\n"
+                    "  compact  - Gradle assemble & unit tests (default, no device)\n"
+                    "  full     - Gradle assemble, unit tests, and mobilerun app launch\n\n"
+                    "Examples:\n"
+                    "  aha verifier                     show current verifier mode\n"
+                    "  aha verifier compact             set verifier mode to compact\n"
+                    "  aha verifier full /path/to/proj  set verifier mode for project\n",
+    )
+    p_ver.add_argument("mode", nargs="?", choices=VERIFIER_MODES, default=None,
+                       help=f"verification mode to set ({', '.join(VERIFIER_MODES)})")
+    p_ver.add_argument("target", nargs="?", default=".",
+                       help="target directory (default: .)")
+    p_ver.add_argument("--device", "--device-serial", dest="device_serial", default=None,
+                       help="target device serial for mobilerun (configures MOBILERUN_DEVICE)")
+    add_platform_flag(p_ver)
+
     p_ls = sub.add_parser("list", help="show available components and profiles")
     p_ls.add_argument("--track", default=DEFAULT_TRACK, choices=TRACKS,
                       help=f"which payload to describe (default: {DEFAULT_TRACK})")
@@ -1398,8 +1545,12 @@ def main(argv: list[str]) -> int:
             args.track = DEFAULT_TRACK
         select_track(args.track)
         return do_install(args, updating=False)
-    if args.command in ("update", "status", "remove", "undo", "undo-init"):
+    if args.command in ("update", "status", "remove", "undo", "undo-init", "verifier"):
         select_platform(detect_platform(Path(args.target).resolve(), args.platform))
+    if args.command == "verifier":
+        prev = read_manifest(Path(args.target).resolve() / HARNESS_DIR)
+        select_track((prev or {}).get("track", DEFAULT_TRACK))
+        return do_verifier(args)
     if args.command == "update":
         target_agents = Path(args.target).resolve() / HARNESS_DIR
         prev = read_manifest(target_agents)
@@ -1411,6 +1562,9 @@ def main(argv: list[str]) -> int:
         gave_profile = any(a == "--profile" or a.startswith("--profile=") for a in argv)
         if prev and not gave_profile:
             args.profile = prev.get("profile", "full")
+        gave_vmode = any(a == "--verifier-mode" or a.startswith("--verifier-mode=") for a in argv)
+        if prev and not gave_vmode:
+            args.verifier_mode = prev.get("verifier_mode", DEFAULT_VERIFIER_MODE)
         if args.track is None:
             args.track = (prev or {}).get("track", DEFAULT_TRACK)
         select_track(args.track)

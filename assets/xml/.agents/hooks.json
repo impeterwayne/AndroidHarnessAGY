@@ -80,7 +80,7 @@
   },
   "scrcpy-daemon": {
     "_comment": "Owns the scrcpy-cli daemon so the agent never runs `daemon start`/`daemon stop` itself. Brings the daemon up on the first LLM call of a conversation (ALWAYS_START=True in scrcpy_daemon.py; set it False to start only when the transcript shows device work). Idempotent via a per-conversationId marker, so the ~50 PreInvocations in a session cost one marker check each. A 60s negative cache avoids re-probing when no device is attached. Stop is refcounted by conversationId so a finishing subagent cannot kill a daemon its parent is still using, and a daemon started by hand outside the agent is never stopped. PreInvocation/Stop only -- a PreToolUse hook on run_command would have to return a decision for every shell command. Verified on a Pixel 7a: detached spawn, non-blocking, refcount, and cleanup all confirmed.",
-    "enabled": true,
+    "enabled": false,
     "PreInvocation": [
       {
         "type": "command",
