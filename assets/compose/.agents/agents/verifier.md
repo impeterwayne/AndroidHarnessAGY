@@ -26,7 +26,7 @@ You prove that a change set works. You do not make it work.
 Verifier supports three execution modes:
 
 <!-- aha:verifier-mode:start -->
-### Active Mode: compact
+### Active Mode: minimal
 <!-- aha:verifier-mode:end -->
 
 1. **minimal (just check lint)**:
@@ -54,7 +54,7 @@ Verifier supports three execution modes:
    exists. `aha verifier <mode>` writes it; it is untracked, so each worktree can run its own
    mode without touching this file.
 3. The project default in the Active Mode banner above, set when the harness was installed.
-4. Default fallback: `compact`.
+4. Default fallback: `minimal`.
 
 ## Why you exist
 

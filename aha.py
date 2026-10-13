@@ -105,7 +105,7 @@ PLATFORM_LAYOUT = {
 }
 
 VERIFIER_MODES = ("minimal", "compact", "full")
-DEFAULT_VERIFIER_MODE = "compact"
+DEFAULT_VERIFIER_MODE = "minimal"
 VERIFIER_MODE = DEFAULT_VERIFIER_MODE
 
 # Per-worktree settings live under <harness>/state/, which is never installed,
@@ -1724,8 +1724,8 @@ def do_list(args) -> int:
         print(f"  {name:<10} {counts}")
     print()
     print("verifier modes")
-    print("  minimal    lint checks & diff non-negotiables only (fastest, no assemble)")
-    print("  compact    Gradle assemble & unit tests (default, no device)")
+    print("  minimal    lint checks & diff non-negotiables only (default, fastest, no assemble)")
+    print("  compact    Gradle assemble & unit tests (no device)")
     print("  full       Gradle assemble, unit tests, and mobilerun app launch")
     print()
     print("mcp servers")
@@ -1847,8 +1847,8 @@ def main(argv: list[str]) -> int:
                     "(state/verifier_mode) and overrides the project default chosen at install\n"
                     "with --verifier-mode, so worktrees can verify differently.\n\n"
                     "Modes:\n"
-                    "  minimal  - lint checks & non-negotiables only (fastest)\n"
-                    "  compact  - Gradle assemble & unit tests (default, no device)\n"
+                    "  minimal  - lint checks & non-negotiables only (default, fastest)\n"
+                    "  compact  - Gradle assemble & unit tests (no device)\n"
                     "  full     - Gradle assemble, unit tests, and mobilerun app launch\n\n"
                     "Examples:\n"
                     "  aha verifier                          show this worktree's mode\n"

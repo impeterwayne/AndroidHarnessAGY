@@ -536,13 +536,13 @@ class TestVerifierModesAndMobilerun(unittest.TestCase):
         p = self.target / (".claude" if platform == "claude" else ".agents") / "state" / name
         return p.read_text(encoding="utf-8").strip() if p.is_file() else None
 
-    def test_default_verifier_mode_is_compact(self):
+    def test_default_verifier_mode_is_minimal(self):
         res = run_aha("init", "--no-git-exclude", cwd=self.target)
         self.assertEqual(res.returncode, 0, res.stderr)
         manifest = self._manifest()
-        self.assertEqual(manifest.get("verifier_mode"), "compact")
+        self.assertEqual(manifest.get("verifier_mode"), "minimal")
         verifier_md = (self.target / ".agents" / "agents" / "verifier.md").read_text(encoding="utf-8")
-        self.assertIn("### Active Mode: compact", verifier_md)
+        self.assertIn("### Active Mode: minimal", verifier_md)
 
     def test_init_with_verifier_mode_flag(self):
         for mode in ("minimal", "compact", "full"):
@@ -564,22 +564,22 @@ class TestVerifierModesAndMobilerun(unittest.TestCase):
         res_init = run_aha("init", "--no-git-exclude", cwd=self.target)
         self.assertEqual(res_init.returncode, 0, res_init.stderr)
 
-        # Query active mode (default is compact)
+        # Query active mode (default is minimal)
         res_get = run_aha("verifier", cwd=self.target)
         self.assertEqual(res_get.returncode, 0, res_get.stderr)
-        self.assertIn("verifier mode: compact", res_get.stdout)
+        self.assertIn("verifier mode: minimal", res_get.stdout)
 
         # A worktree override: untracked state, installed files and manifest untouched.
         verifier_md = self.target / ".agents" / "agents" / "verifier.md"
         before = verifier_md.read_bytes()
-        res_set = run_aha("verifier", "minimal", cwd=self.target)
+        res_set = run_aha("verifier", "compact", cwd=self.target)
         self.assertEqual(res_set.returncode, 0, res_set.stderr)
-        self.assertIn("verifier mode set to: minimal (this worktree)", res_set.stdout)
-        self.assertEqual(self._local("verifier_mode"), "minimal")
+        self.assertIn("verifier mode set to: compact (this worktree)", res_set.stdout)
+        self.assertEqual(self._local("verifier_mode"), "compact")
         self.assertEqual(verifier_md.read_bytes(), before)
-        self.assertEqual(self._manifest().get("verifier_mode"), "compact")
-        self.assertIn("verifier mode: minimal (this worktree", run_aha("verifier", cwd=self.target).stdout)
-        self.assertIn("this worktree verifier mode minimal", run_aha("status", cwd=self.target).stdout)
+        self.assertEqual(self._manifest().get("verifier_mode"), "minimal")
+        self.assertIn("verifier mode: compact (this worktree", run_aha("verifier", cwd=self.target).stdout)
+        self.assertIn("this worktree verifier mode compact", run_aha("status", cwd=self.target).stdout)
 
         res_set2 = run_aha("verifier", "full", cwd=self.target)
         self.assertEqual(res_set2.returncode, 0, res_set2.stderr)
@@ -588,7 +588,7 @@ class TestVerifierModesAndMobilerun(unittest.TestCase):
         res_reset = run_aha("verifier", "--reset", cwd=self.target)
         self.assertEqual(res_reset.returncode, 0, res_reset.stderr)
         self.assertIsNone(self._local("verifier_mode"))
-        self.assertIn("verifier mode: compact (project default", run_aha("verifier", cwd=self.target).stdout)
+        self.assertIn("verifier mode: minimal (project default", run_aha("verifier", cwd=self.target).stdout)
 
         # Invalid mode is rejected
         res_invalid = run_aha("verifier", "bogus", cwd=self.target)
