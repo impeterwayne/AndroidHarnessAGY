@@ -175,9 +175,12 @@ DEFAULT_SUBAGENT_MODEL = "sonnet"
 SUBAGENT_MODEL = DEFAULT_SUBAGENT_MODEL
 CLAUDE_TOOLS = {
     "view_file": "Read",
+    "read_file": "Read",
     "write_to_file": "Write",
+    "write_file": "Write",
     "replace_file_content": "Edit",
     "multi_replace_file_content": "Edit",
+    "edit_file": "Edit",
     "grep_search": "Grep",
     "list_dir": "Glob",
     "run_command": "Bash",

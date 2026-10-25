@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -52,13 +53,16 @@ OFF_SWITCH = STATE_DIR / "off"
 
 BRAIN_DIR = Path.home() / ".gemini" / "antigravity-cli" / "brain"
 TRANSCRIPTS = (
-    Path(".system_generated") / "logs" / "transcript_full.jsonl",
     Path(".system_generated") / "logs" / "transcript.jsonl",
+    Path(".system_generated") / "logs" / "transcript_full.jsonl",
 )
 
 # The parent writes this when it creates a subagent, alongside the child's
-# conversationId. Observed 2026-08-27; it is the only directional marker available.
-SPAWN_MARKER = b"Created the following subagents"
+# conversationId. CLI versions emit either singular ("Created the following subagent:")
+# or plural ("Created the following subagents:"), so match the common prefix.
+SPAWN_MARKER = b"Created the following subagent"
+SPAWN_BLOCK_RE = re.compile(r"(?:^|\n)Created the following subagents?:\s*\{")
+SUBAGENT_INIT_RE = re.compile(r"<SYSTEM_MESSAGE>\s*\[Message\]\s+timestamp=\S+\s+sender=\S+")
 
 # Bound the sibling scan. Anything older than this cannot be our live parent.
 SCAN_MAX_AGE_S = 24 * 60 * 60
@@ -83,7 +87,9 @@ PROJECT_ROOT = HOOKS_DIR.parent.parent
 def in_project(path: str) -> bool:
     """True if path resolves inside the project that owns this hook. Errs toward True."""
     try:
-        Path(path).resolve().relative_to(PROJECT_ROOT.resolve())
+        p = Path(path)
+        resolved = (p if p.is_absolute() else PROJECT_ROOT / p).resolve()
+        resolved.relative_to(PROJECT_ROOT.resolve())
         return True
     except ValueError:
         return False
@@ -121,17 +127,76 @@ def transcript_for(brain: Path):
     return None
 
 
-def spawned_by_another(conversation_id: str, brain_root: Path | None = None) -> bool:
-    """True if some other conversation's transcript records *spawning* this one.
+def is_spawn_record(line: bytes, conversation_id: str) -> bool:
+    """True when `line` is a GENERIC subagent-creation record naming `conversation_id`.
 
-    Both the id and the spawn marker must appear in the same record, so a child's
-    'Message sent to "<parent>"' report cannot make its parent look like a delegate.
+    Parses the record after the byte pre-filter so a `view_file`/`read_file` of this
+    script, a `grep` output, a `CHECKPOINT` summary, or `PLANNER_RESPONSE` thinking
+    that happens to mention both the marker and a conversationId cannot flip a root
+    session into a delegate.
+    """
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return False
+    if not isinstance(record, dict) or record.get("type") != "GENERIC":
+        return False
+    content = record.get("content") or ""
+    if not SPAWN_BLOCK_RE.search(content):
+        return False
+    return re.search(
+        r'"conversationId"\s*:\s*"' + re.escape(conversation_id) + r'"', content
+    ) is not None
+
+
+def is_subagent_transcript(conversation_id: str, brain_root: Path | None = None) -> bool:
+    """True when `conversation_id`'s own transcript starts with an agent-to-agent message.
+
+    In Antigravity CLI, a root session starts at step 0 with `type == "USER_INPUT"`
+    (`source == "USER_EXPLICIT"`), whereas an `invoke_subagent` child starts at step 0
+    with `type == "SYSTEM_MESSAGE"` carrying `[Message] timestamp=... sender=<parent>`.
+    Checking the child's own first record is O(1) and succeeds even if the parent's
+    brain dir is older than `SCAN_MAX_AGE_S` or past `SCAN_MAX_DIRS`.
+    """
+    root = brain_root or BRAIN_DIR
+    if not conversation_id or not root.is_dir():
+        return False
+    path = transcript_for(root / conversation_id)
+    if path is None:
+        return False
+    try:
+        with path.open("rb") as handle:
+            first = handle.readline(READ_CAP_BYTES)
+        if not first:
+            return False
+        record = json.loads(first)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(record, dict):
+        return False
+    if record.get("source") == "SYSTEM" and record.get("type") == "SYSTEM_MESSAGE":
+        content = record.get("content") or ""
+        if SUBAGENT_INIT_RE.search(content):
+            return True
+    return False
+
+
+def spawned_by_another(conversation_id: str, brain_root: Path | None = None) -> bool:
+    """True if some other conversation's transcript records *spawning* this one,
+    or if this conversation's own transcript starts with a subagent init message.
+
+    Both the id and the spawn marker must appear in a real GENERIC spawn record, so a
+    child's 'Message sent to "<parent>"' report (or a session reading this file) cannot
+    make a root session look like a delegate.
     """
     if HOOKS_DIR.parent.name == ".claude":
         return False
     root = brain_root or BRAIN_DIR
     if not conversation_id or not root.is_dir():
         return False
+
+    if is_subagent_transcript(conversation_id, root):
+        return True
 
     needle = conversation_id.encode("utf-8", "ignore")
     now = time.time()
@@ -140,21 +205,24 @@ def spawned_by_another(conversation_id: str, brain_root: Path | None = None) -> 
     for entry in root.iterdir():
         if not entry.is_dir() or entry.name == conversation_id:
             continue
+        path = transcript_for(entry)
+        if path is None:
+            continue
         try:
-            age = now - entry.stat().st_mtime
+            # Stat the transcript file, not the parent brain dir: appending new steps
+            # to `.system_generated/logs/transcript*.jsonl` does not update the
+            # top-level `<brain>/<conversationId>` directory mtime.
+            age = now - path.stat().st_mtime
         except OSError:
             continue
         if age > SCAN_MAX_AGE_S:
             continue
-        candidates.append((age, entry))
+        candidates.append((age, path))
 
     # Newest first: our parent is almost always the most recently touched sibling.
     candidates.sort(key=lambda pair: pair[0])
 
-    for _, entry in candidates[:SCAN_MAX_DIRS]:
-        path = transcript_for(entry)
-        if path is None:
-            continue
+    for _, path in candidates[:SCAN_MAX_DIRS]:
         try:
             with path.open("rb") as handle:
                 read = 0
@@ -163,7 +231,8 @@ def spawned_by_another(conversation_id: str, brain_root: Path | None = None) -> 
                     if read > READ_CAP_BYTES:
                         break
                     if needle in line and SPAWN_MARKER in line:
-                        return True
+                        if is_spawn_record(line, conversation_id):
+                            return True
         except OSError:
             continue
     return False
@@ -348,6 +417,52 @@ def self_test() -> int:
         check("same child reads as delegate once the parent flushes",
               classify("conv-late", brain, STATE_DIR) == "delegate")
 
+        # Singular 'Created the following subagent:' (CLI single-spawn format).
+        make_brain(brain, "conv-singular-parent", json.dumps({
+            "type": "GENERIC", "source": "MODEL",
+            "content": "Created At: 2026-10-25T14:28:37+07:00\n"
+                       "Completed At: 2026-10-25T14:28:38+07:00\n"
+                       'Created the following subagent:\n{\n  "conversationId":  '
+                       '"conv-singular-child",\n  "workspaceUris": []\n}',
+        }) + "\n")
+        check("singular 'Created the following subagent:' classifies child as delegate",
+              classify("conv-singular-child", brain, STATE_DIR) == "delegate")
+
+        # Child's own step-0 SYSTEM_MESSAGE ([Message] timestamp=... sender=...) is enough
+        # even when no parent transcript is present in the scan window.
+        make_brain(brain, "conv-self-child", json.dumps({
+            "step_index": 0, "source": "SYSTEM", "type": "SYSTEM_MESSAGE",
+            "content": "The following is a <SYSTEM_MESSAGE> not actually sent by the user.\n\n"
+                       "<SYSTEM_MESSAGE>\n[Message] timestamp=2026-10-25T07:28:38Z "
+                       "sender=conv-missing-parent priority=MESSAGE_PRIORITY_HIGH "
+                       "content=1. TASK\nFix bug\n</SYSTEM_MESSAGE>",
+        }) + "\n")
+        check("child with subagent SYSTEM_MESSAGE at step 0 is a delegate",
+              classify("conv-self-child", brain, STATE_DIR) == "delegate")
+
+        # Stale parent directory mtime (>24h) with a fresh transcript file still matches.
+        stale_parent = make_brain(brain, "conv-stale-dir-parent",
+                                  spawn_record("conv-stale-dir-child"))
+        old_ts = time.time() - (3 * SCAN_MAX_AGE_S)
+        os.utime(stale_parent, (old_ts, old_ts))
+        check("fresh transcript inside a stale parent brain dir still counts",
+              classify("conv-stale-dir-child", brain, STATE_DIR) == "delegate")
+
+        # Viewing write_guard.py or thinking about SPAWN_MARKER + id does not spoof spawn.
+        make_brain(brain, "conv-viewer",
+                   json.dumps({
+                       "type": "GENERIC", "source": "MODEL",
+                       "content": '61: SPAWN_MARKER = b"Created the following subagent"\n'
+                                  '62: "conversationId": "conv-root-spoof"',
+                   }) + "\n"
+                   + json.dumps({
+                       "type": "PLANNER_RESPONSE", "source": "MODEL",
+                       "thinking": 'Created the following subagent:\n{\n'
+                                   '"conversationId": "conv-root-spoof"\n}',
+                   }) + "\n")
+        check("viewing write_guard.py or thinking about marker does not spoof delegate",
+              classify("conv-root-spoof", brain, STATE_DIR) == "root")
+
         # --- source classification ------------------------------------------
         for path, expected in [
             ("feature/home/HomeScreen.kt", True),
@@ -363,6 +478,8 @@ def self_test() -> int:
 
         # --- arg extraction -------------------------------------------------
         check("extracts TargetFile", extract_target({"TargetFile": "a/B.kt"}) == "a/B.kt")
+        check("extracts Path (write_file / edit_file)",
+              extract_target({"Path": "a/B.kt", "Content": "x"}) == "a/B.kt")
         check("extracts a *_path key", extract_target({"file_path": "a/B.kt"}) == "a/B.kt")
         check("unknown arg shape yields None", extract_target({"blob": 3}) is None)
 
@@ -373,6 +490,12 @@ def self_test() -> int:
         })
         check("root writing Kotlin is denied", deny.get("decision") == "deny")
         check("denial names the executor", "executor" in (deny.get("reason") or ""))
+
+        deny_edit_file = run_hook({
+            "conversationId": parent,
+            "toolCall": {"name": "edit_file", "args": {"Path": "feature/A.kt", "Target": "a", "Replacement": "b"}},
+        })
+        check("root edit_file on Kotlin is denied", deny_edit_file.get("decision") == "deny")
 
         allow_child = run_hook({
             "conversationId": child,

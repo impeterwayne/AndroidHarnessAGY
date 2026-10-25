@@ -49,9 +49,12 @@ HARNESS_DIR = HOOKS_DIR.parent
 
 TOOL_NAMES = {
     "view_file": "Read",
+    "read_file": "Read",
     "write_to_file": "Write",
+    "write_file": "Write",
     "multi_replace_file_content": "Edit",
     "replace_file_content": "Edit",
+    "edit_file": "Edit",
     "grep_search": "Grep",
     "list_dir": "Glob",
     "run_command": "Bash",

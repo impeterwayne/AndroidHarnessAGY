@@ -335,6 +335,14 @@ class TestTracks(unittest.TestCase):
                 (compose / rel).read_bytes(), (xml / rel).read_bytes(),
                 f"{rel} differs between tracks")
 
+    def test_write_guard_and_rule_gate_self_tests_pass_in_both_tracks(self):
+        for track in ("compose", "xml"):
+            for script in ("write_guard.py", "rule_gate.py"):
+                hook = self.ASSETS / track / ".agents" / "hooks" / script
+                res = subprocess.run([sys.executable, str(hook), "--self-test"],
+                                     capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, f"{track}/{script}:\n{res.stdout}{res.stderr}")
+
 
 class TestClaudePlatform(unittest.TestCase):
     AGY_TOOLS = ("view_file", "write_to_file", "replace_file_content", "grep_search",
