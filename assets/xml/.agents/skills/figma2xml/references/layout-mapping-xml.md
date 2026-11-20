@@ -67,7 +67,8 @@ All of these are `shape_*` attributes on a `Shape*` view. **None of them is a ne
 | linear gradient fill | `shape_solidGradientStartColor` / `EndColor` / `Orientation` |
 | radial or angular gradient | `shape_solidGradientType="radial"` / `"sweep"` + the centre and radius attributes |
 | gradient on text | `shape_textStartColor` / `shape_textEndColor` / `shape_textGradientOrientation` |
-| drop shadow | `shape_effect1Type="dropShadow"` + `Color` / `Blur` / `Spread` / `OffsetX` / `OffsetY`; add `shape_effectPadContent="true"` |
+| drop shadow | `shape_effect1Type="dropShadow"` + `Color` / `Blur` / `Spread` / `OffsetX` / `OffsetY`, **plus** negative margins equal to the insets (`blur + spread ± offset` per edge), and every fixed height grown by them. See `shape-view` → `references/shadows.md` |
+| shadow on one side only (bottom bar, sticky footer) | `shape_effect1Edges="top"` (or `bottom`), so the other edges reserve no inset |
 | inner shadow | `shape_effect1Type="innerShadow"`, same geometry |
 | two stacked shadows | `shape_effect1*` and `shape_effect2*` |
 | pressed / selected / disabled fill | `shape_solidPressedColor` / `SelectedColor` / `DisabledColor` |

@@ -53,6 +53,7 @@ Every class takes the shape, stroke, ripple and effect attributes. The text attr
 | :--- | :--- |
 | [references/attributes.md](./references/attributes.md) | every `shape_*` attribute, grouped, with the enum values spelled out and which classes take which group |
 | [references/kotlin-api.md](./references/kotlin-api.md) | the code API — the builder classes, their setters, `ShapeEffect`, the enum constants, and the two rules that cause every bug in it |
+| [references/shadows.md](./references/shadows.md) | **read before any `dropShadow`**: the shadow is painted *inside* the view and shrinks the shape, plus the compensation patterns (negative margins, fixed-size insets, weighted rows, scroll containers, popups) |
 | [references/recipes.md](./references/recipes.md) | worked layouts: pill button with states, outlined button, card, drop shadow, gradient CTA, gradient text, selectable chip, sheet header, divider, dashed drop zone, ripple row, ring, rounded remote image |
 
 These references are checked against the published source of `ShapeView:1.0.2`. Read the
@@ -149,6 +150,10 @@ Migrating drawables nobody asked you to migrate is scope creep. Convert what you
 - [ ] Runtime changes go through a builder and end in `.intoBackground()` /
       `.intoTextColor()` / `.intoButtonDrawable()`, with px-converted dimensions.
 - [ ] A deleted drawable was grepped repo-wide first.
+- [ ] Every `dropShadow` follows [references/shadows.md](./references/shadows.md):
+      negative margins cancel the insets, every fixed height or width includes them, no
+      `android:elevation` on top, and a device screenshot was taken. A shadowed 48dp row
+      that compiles can still render with its text clipped.
 - [ ] The module compiles: `./gradlew :<module>:assembleDebug`. Attribute typos are a
       resource-linking failure, not a Kotlin one, so a `compileDebugKotlin` will not catch
       them.

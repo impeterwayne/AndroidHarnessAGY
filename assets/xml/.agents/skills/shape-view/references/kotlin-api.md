@@ -122,7 +122,12 @@ Factories: `ShapeEffect.dropShadow(color, blur, spread, offsetX, offsetY)` and
 `copy()` gives a detached instance.
 
 Edge flags: `ShapeEffect.EDGE_NONE`, `EDGE_LEFT`, `EDGE_TOP`, `EDGE_RIGHT`, `EDGE_BOTTOM`,
-`EDGE_ALL` (the default). Type constants: `ShapeEffectType.DROP_SHADOW`, `INNER_SHADOW`.
+`EDGE_ALL` (the default). An edge left out of the flags reserves no inset. Use
+`EDGE_TOP` for a bottom bar or a sticky footer, so it keeps its full width.
+
+`getShadowInsets()` returns the space, in pixels, that the shadow takes from inside the
+view on each edge (`blur + spread ± offset`). Size and offset popups and custom views
+with it. Read [shadows.md](./shadows.md) before adding a shadow at runtime. Type constants: `ShapeEffectType.DROP_SHADOW`, `INNER_SHADOW`.
 Default colour is `0x33000000`.
 
 `addEffect` stacks up to four; slot order is paint order, so the first is the tightest.

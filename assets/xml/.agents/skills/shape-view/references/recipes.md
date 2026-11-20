@@ -63,19 +63,27 @@ Replaces: a nine-patch, or `android:elevation` that does not match the mock.
 <com.genesys.shape.layout.ShapeFrameLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginStart="@dimen/shadow_card_margin_h"
+    android:layout_marginEnd="@dimen/shadow_card_margin_h"
+    android:layout_marginTop="@dimen/shadow_card_margin_top"
+    android:layout_marginBottom="@dimen/shadow_card_margin_bottom"
     app:shape_radius="@dimen/radius_16"
     app:shape_solidColor="@color/surface_card"
     app:shape_effect1Type="dropShadow"
     app:shape_effect1Color="@color/shadow_card"
-    app:shape_effect1Blur="16dp"
-    app:shape_effect1Spread="0dp"
-    app:shape_effect1OffsetY="4dp"
-    app:shape_effectPadContent="true" />
+    app:shape_effect1Blur="@dimen/shadow_card_blur"
+    app:shape_effect1OffsetY="@dimen/shadow_card_offset_y" />
 ```
 
-The Figma shadow's x/y/blur/spread map one-to-one. `shape_effectPadContent="true"` keeps
-the shadow from being clipped by the content box. For a two-layer shadow, add a
-`shape_effect2*` group — slot 1 paints first, so put the tight shadow there.
+The Figma shadow's x/y/blur/spread map one-to-one. **The shadow is painted inside the
+view:** ShapeView shrinks the filled shape by `blur + spread ± offset` on each edge. The
+negative margins (the insets, negated, as tokens) cancel that. Without them the card
+comes out 2 × blur narrower than designed, and any fixed height loses the vertical insets.
+`shape_effectPadContent` (default `true`) keeps children inside the shrunk shape. It does
+not prevent clipping. Read [shadows.md](./shadows.md) before using this recipe:
+fixed heights, weighted rows, `ConstraintLayout`, `<include>`, scroll containers and
+popups each need their own handling. For a two-layer shadow, add a `shape_effect2*`
+group. Slot 1 paints first, so put the tight shadow there.
 
 ## Gradient CTA
 

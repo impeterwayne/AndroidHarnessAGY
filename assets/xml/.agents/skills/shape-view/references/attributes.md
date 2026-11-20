@@ -115,11 +115,19 @@ earlier ones, so slot 1 is the closest/tightest shadow.
 | `shape_effect<n>OffsetY` | dimension | positive moves it down |
 | `shape_effect<n>Edges` | flags | which edges the effect is drawn on |
 
-`shape_effectPadContent` — pads the view's content so a drop shadow does not overlap it.
+`shape_effectPadContent` (default `true`) adds the shadow insets to the view's padding,
+so the children stay inside the shape. It does **not** stop the shape shrinking:
+`false` only lets children overflow the shrunk shape.
 
 A Figma drop shadow maps one-to-one: colour → `Color`, blur → `Blur`, spread → `Spread`,
 x/y → `OffsetX`/`OffsetY`. Use this rather than `android:elevation`, which gives you the
-platform's shadow, not the designer's.
+platform's shadow, not the designer's. Never set both.
+
+**The shadow is drawn inside the view's bounds.** Each enabled edge reserves
+`max(0, blur + spread ± offset)`, and the filled shape shrinks by that much. A
+`blur 23 / y 11` card loses 46dp of width and 46dp of height. Compensate with negative
+margins and taller fixed sizes, as described in [shadows.md](./shadows.md). `Edges`
+limits both the shadow and the inset to the listed edges.
 
 ## Text (text-bearing classes only)
 

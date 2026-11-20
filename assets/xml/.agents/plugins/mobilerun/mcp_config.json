@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mobilerun": {
+      "command": "npx",
+      "args": ["-y", "@impeterwayne/mobilerun-mcp@latest"]
+    }
+  }
+}

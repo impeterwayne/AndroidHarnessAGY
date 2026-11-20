@@ -53,6 +53,11 @@ colour, a ripple or a shadow.
 - Shadows are `shape_effect1Type="dropShadow"` + `Color`/`Blur`/`Spread`/`OffsetX`/`OffsetY`,
   up to four stacked slots — not a nine-patch and not `android:elevation` when the design
   gives a blur and an offset.
+- **A ShapeView shadow is painted inside the view.** The shape shrinks by
+  `blur + spread ± offset` on each edge, so a `blur 23 / y 11` card loses 46dp of width
+  and height. Cancel that with negative margins from `shadow_*` tokens, add the insets to
+  every fixed height, and don't let a scroll container clip-bleed. Follow skill
+  `shape-view` → `references/shadows.md`, and check every shadowed screen on a device.
 - Changing a shape at runtime goes through the Kotlin builders
   (`shapeDrawableBuilder … .intoBackground()`, `textColorBuilder … .intoTextColor()`),
   never by swapping a drawable resource. Builder values are **pixels**, XML values are dp.
